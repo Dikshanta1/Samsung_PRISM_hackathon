@@ -21,6 +21,8 @@ References: [official MPFB extension](https://extensions.blender.org/add-ons/mpf
 
 Each bone head equals its eye sphere origin. Eye rotations are applied to the pose bones; the eye sphere, iris, and pupil therefore rotate about the physical eye centre with no flat 2D translation.
 
+The bones point along world +Z, so bone-local X is the pitch axis, bone-local Y (world Z) is the yaw axis, and bone-local Z is the line of sight (never rotated — that would only twist the eye). `set_eye_rotation(rig, side, pitch, yaw)` uses `pitch > 0` = look up and `yaw > 0` = look toward world +X (image-right). Note that `Eye_L` sits at world −X, which is image-left and the subject's anatomical right eye. `tests/test_eye_rig.py` projects each pupil through the camera and asserts Up, Down, Left, Right and Reset for both eyes independently.
+
 ## Fixed target, camera, renders, and commands
 
 `FixationTarget` is at `(0, -0.483, 0.055)`, exactly 0.350 m in front of the eye midpoint. `Camera` is at `(0, -0.533, 0.055)`, exactly 0.400 m in front of that midpoint, and faces the head. Lighting is fixed before all three 1024 × 1024 PNG renders.

@@ -79,10 +79,20 @@ def create_eye_geometry(
 
 
 def set_eye_rotation(armature: bpy.types.Object, side: str, pitch: float, yaw: float) -> None:
-    """Set local Euler rotation on the named eye bone in radians."""
+    """Rotate the named eye about its centre, in radians.
+
+    Convention (face looks along world -Y, camera looks along +Y):
+    * ``pitch > 0`` turns the gaze up (world +Z, pupil moves up in the image).
+    * ``yaw > 0`` turns the gaze toward world +X (pupil moves right in the image).
+
+    The eye bones point along world +Z, so bone-local X is world X (pitch axis),
+    bone-local Y is world Z (yaw axis) and bone-local Z is the gaze axis itself.
+    Rotating about local Z would only twist the eye about its line of sight, so
+    it is never used. XYZ Euler applies pitch first, then yaw about the vertical.
+    """
     bone = armature.pose.bones[f"EyeBone_{side}"]
     bone.rotation_mode = "XYZ"
-    bone.rotation_euler = (pitch, 0.0, yaw)
+    bone.rotation_euler = (-pitch, yaw, 0.0)
     bpy.context.view_layer.update()
 
 

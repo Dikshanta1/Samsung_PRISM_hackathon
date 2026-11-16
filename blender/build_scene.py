@@ -146,12 +146,13 @@ def build(render_dir: Path) -> None:
     create_camera_and_lighting()
     reset_eyes(rig)
     render(render_dir / "stage1_front.png")
-    # Pitch is a visible rotation axis for the front-facing camera. Each test
-    # poses only one bone; the other remains at its neutral physical centre.
-    set_eye_rotation(rig, "L", radians(18), 0.0)
+    # Each test poses only one bone; the other remains at its neutral physical
+    # centre. One render exercises yaw and the other pitch, so both axes are
+    # visibly covered (pitch > 0 looks up, yaw > 0 looks toward image-right).
+    set_eye_rotation(rig, "L", 0.0, radians(18))
     render(render_dir / "stage1_left_eye_rotation.png")
     reset_eyes(rig)
-    set_eye_rotation(rig, "R", radians(-18), 0.0)
+    set_eye_rotation(rig, "R", radians(18), 0.0)
     render(render_dir / "stage1_right_eye_rotation.png")
     reset_eyes(rig)
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "blender" / "scene.blend"))

@@ -26,7 +26,7 @@ import bpy
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender"))
 from calibration import state, validate_input
-from camera_setup import calibration_report, camera_state, projection_matrix, pupil_centres_px, verify_camera
+from camera_setup import calibration_report, camera_state, projection_matrix, pupil_centre_world, pupil_centres_px, verify_camera
 from lighting_setup import lighting_state, verify_lighting
 from render_frame import render_still
 
@@ -58,6 +58,11 @@ def eye_rotations_degrees() -> dict[str, list[float]]:
             for side in ("L", "R")}
 
 
+def eye_rotations_radians() -> dict[str, list[float]]:
+    """Actual world-frame XYZ Euler rotations in Blender's native radians."""
+    return {side: list(bpy.data.objects[f"Eye_{side}"].matrix_world.to_euler("XYZ")) for side in ("L", "R")}
+
+
 def run(args: argparse.Namespace) -> dict[str, object]:
     require_eye_scene(args.scene)
     scene = bpy.context.scene
@@ -73,6 +78,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                                  "blender_version": bpy.app.version_string}
     result.update(state(h, v))
     result["eye_rotation_euler_xyz_degrees"] = eye_rotations_degrees()
+    result["eye_rotation_euler_xyz_radians"] = eye_rotations_radians()
+    result["pupil_center_world_m"] = {side: list(pupil_centre_world(side)) for side in ("L", "R")}
     result["pupil_center_2D"] = pupil_centres_px(scene)
     result["camera_matrix"] = projection_matrix(scene)
     result["camera_calibration"] = calibration_report(scene)

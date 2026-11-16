@@ -118,7 +118,9 @@ def generate() -> Path:
             # Everything below was measured by Blender in the process that rendered this image.
             "world_eye_rotations_quaternion": render["world_eye_rotations_quaternion"],
             "world_eye_rotations_euler_xyz_degrees": render["eye_rotation_euler_xyz_degrees"],
+            "world_eye_rotations_euler_xyz_radians": render["eye_rotation_euler_xyz_radians"],
             "pupil_center_2D": render["pupil_center_2D"],
+            "pupil_center_world_m": render["pupil_center_world_m"],
             "camera_calibration": render["camera_calibration"],
             "camera_matrix": render["camera_matrix"],
             "angular_error_degrees": render["angular_error_degrees"],

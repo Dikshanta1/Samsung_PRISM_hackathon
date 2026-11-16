@@ -9,6 +9,10 @@ path of the PNG. The scene file is opened read-only: nothing is saved, so the
 camera and lighting cannot be altered by rendering. Every failure is raised as
 ``RenderError`` with the reason and the tail of Blender's output.
 
+``render(path, pose=(h, v))`` instead sets that absolute fixation pose inside
+the Blender process before rendering (still without saving the scene); this is
+what ``wrapper.eyes.Eyes.render`` uses.
+
 Command line: ``python3 -m wrapper.renderer renders/frame.png``
 """
 from __future__ import annotations
@@ -27,10 +31,13 @@ except ImportError:  # executed as a plain script rather than as a package modul
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCENE = PROJECT_ROOT / "blender" / "scene.blend"
 RENDER_SCRIPT = PROJECT_ROOT / "blender" / "render_frame.py"
+WORKER_SCRIPT = PROJECT_ROOT / "scripts" / "blender_worker.py"
 EXPECTED_SIZE = (1024, 1024)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 RESULT_PREFIX = "RENDER_RESULT "
 ERROR_PREFIX = "RENDER_ERROR "
+WORKER_RESULT_PREFIX = "WORKER_RESULT "
+WORKER_ERROR_PREFIX = "WORKER_ERROR "
 DEFAULT_TIMEOUT_S = 600.0
 
 
@@ -52,8 +59,13 @@ def _tail(text: str, lines: int = 15) -> str:
 
 
 def render_with_details(output_path: str | Path, *, scene: str | Path | None = None,
-                        timeout: float = DEFAULT_TIMEOUT_S) -> tuple[Path, dict[str, object]]:
-    """Render the current eye pose and also return Blender's report for the frame."""
+                        timeout: float = DEFAULT_TIMEOUT_S,
+                        pose: tuple[float, float] | None = None) -> tuple[Path, dict[str, object]]:
+    """Render the eye pose and also return Blender's report for the frame.
+
+    With ``pose=None`` the pose saved in the scene file is rendered; with
+    ``pose=(h, v)`` that fixation is applied in memory first.
+    """
     output = Path(output_path).expanduser().resolve()
     scene_path = Path(scene).expanduser().resolve() if scene else DEFAULT_SCENE
     if output.suffix.lower() != ".png":
@@ -71,8 +83,14 @@ def render_with_details(output_path: str | Path, *, scene: str | Path | None = N
     except OSError as error:
         raise RenderError(f"Cannot write to {output}: {error}") from error
 
-    command = [str(blender), "--background", "--factory-startup", str(scene_path),
-               "--python-exit-code", "1", "--python", str(RENDER_SCRIPT), "--", "--output", str(output)]
+    command = [str(blender), "--background", "--factory-startup", str(scene_path), "--python-exit-code", "1"]
+    if pose is None:
+        command += ["--python", str(RENDER_SCRIPT), "--", "--output", str(output)]
+        result_prefix, error_prefix = RESULT_PREFIX, ERROR_PREFIX
+    else:
+        command += ["--python", str(WORKER_SCRIPT), "--", "render", f"--h={float(pose[0])!r}", f"--v={float(pose[1])!r}",
+                    "--output", str(output), "--scene", str(scene_path)]
+        result_prefix, error_prefix = WORKER_RESULT_PREFIX, WORKER_ERROR_PREFIX
     try:
         completed = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired as error:
@@ -81,11 +99,11 @@ def render_with_details(output_path: str | Path, *, scene: str | Path | None = N
         raise RenderError(f"Could not start Blender at {blender}: {error}") from error
 
     log = completed.stdout + "\n" + completed.stderr
-    reported_error = next((line[len(ERROR_PREFIX):] for line in log.splitlines() if line.startswith(ERROR_PREFIX)), None)
+    reported_error = next((line[len(error_prefix):] for line in log.splitlines() if line.startswith(error_prefix)), None)
     if completed.returncode != 0 or reported_error:
         reason = reported_error or f"Blender exited with code {completed.returncode}"
         raise RenderError(f"Render failed: {reason}\n--- Blender output (tail) ---\n{_tail(log)}")
-    result_line = next((line for line in log.splitlines() if line.startswith(RESULT_PREFIX)), None)
+    result_line = next((line for line in log.splitlines() if line.startswith(result_prefix)), None)
     if result_line is None:
         raise RenderError(f"Blender finished without reporting a render\n--- Blender output (tail) ---\n{_tail(log)}")
     if not output.is_file():
@@ -93,12 +111,13 @@ def render_with_details(output_path: str | Path, *, scene: str | Path | None = N
     size = png_size(output)
     if size != EXPECTED_SIZE:
         raise RenderError(f"{output} is {size[0]} x {size[1]} px, expected {EXPECTED_SIZE[0]} x {EXPECTED_SIZE[1]}")
-    return output, json.loads(result_line[len(RESULT_PREFIX):])
+    return output, json.loads(result_line[len(result_prefix):])
 
 
-def render(output_path: str | Path, *, scene: str | Path | None = None, timeout: float = DEFAULT_TIMEOUT_S) -> Path:
+def render(output_path: str | Path, *, scene: str | Path | None = None, timeout: float = DEFAULT_TIMEOUT_S,
+           pose: tuple[float, float] | None = None) -> Path:
     """Render the current eye position to a 1024 x 1024 PNG and return its path."""
-    return render_with_details(output_path, scene=scene, timeout=timeout)[0]
+    return render_with_details(output_path, scene=scene, timeout=timeout, pose=pose)[0]
 
 
 def main() -> None:

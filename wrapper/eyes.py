@@ -1,30 +1,60 @@
-"""Simple external API for the Samsung PRISM binocular-eye Blender scene."""
+"""Simple external API for the Samsung PRISM binocular-eye Blender scene.
+
+    from wrapper.eyes import Eyes
+
+    eyes = Eyes()
+    eyes.move(1, 0)
+    eyes.render()
+    eyes.reset()
+
+This module is ordinary Python and never imports ``bpy``. Every call starts
+Blender in background mode on the real ``blender/scene.blend`` and runs
+``scripts/blender_worker.py`` inside Blender's own Python runtime.
+
+The current pose ``(h, v)`` is held by the ``Eyes`` object and sent to Blender
+with each command as an absolute fixation, so movements never accumulate. The
+scene file is never saved: it always holds the calibrated neutral pose, the
+locked camera and the constant lighting.
+"""
 from __future__ import annotations
 
+from math import isfinite
 from pathlib import Path
 import json
 import subprocess
 from typing import Any
 
 from .blender_runner import blender_executable
-from .renderer import RenderError, render
+from .renderer import RenderError, render_with_details
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SCENE = ROOT / "blender" / "scene.blend"
+DEFAULT_OUTPUT_DIR = ROOT / "outputs"
 WORKER = ROOT / "scripts" / "blender_worker.py"
 RESULT_PREFIX = "WORKER_RESULT "
 ERROR_PREFIX = "WORKER_ERROR "
 
 
 class BlenderWorkerError(RuntimeError):
-    """Blender could not load or control the real eye scene."""
+    """Blender could not load, control or render the real eye scene."""
+
+
+def _coordinate(name: str, value: Any) -> float:
+    """Return ``value`` as a float in [-1, +1], or raise ``ValueError``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number in [-1, +1], received {value!r}")
+    number = float(value)
+    if not isfinite(number) or not -1.0 <= number <= 1.0:
+        raise ValueError(f"{name} must be in [-1, +1], received {value!r}")
+    return number
 
 
 class Eyes:
-    """Control the saved Blender scene through background Blender processes.
+    """Control and render the Blender eye scene through background Blender processes.
 
-    The class is safe to import from ordinary system Python.  It never imports
-    ``bpy``; every scene mutation is delegated to ``scripts/blender_worker.py``
-    inside Blender's bundled Python runtime.
+    ``output_dir`` is where ``render()`` writes images (default ``outputs/``);
+    ``scene`` overrides the .blend file; ``timeout`` is the limit in seconds for
+    each Blender run.
     """
 
     def __init__(
@@ -34,31 +64,37 @@ class Eyes:
         scene: str | Path | None = None,
         timeout: float = 600.0,
     ) -> None:
-        self.scene = Path(scene).expanduser().resolve() if scene else ROOT / "blender" / "scene.blend"
-        self.output_dir = Path(output_dir).expanduser().resolve() if output_dir else ROOT / "outputs"
+        self.scene = Path(scene).expanduser().resolve() if scene else DEFAULT_SCENE
+        self.output_dir = Path(output_dir).expanduser().resolve() if output_dir else DEFAULT_OUTPUT_DIR
         self.timeout = timeout
+        self._pose = (0.0, 0.0)
         self._render_index = 0
+        self.last_render: dict[str, Any] | None = None
         if not self.scene.is_file():
             raise FileNotFoundError(f"Blender scene not found: {self.scene}")
 
-    @staticmethod
-    def _validate(h: float, v: float) -> None:
-        if not (-1.0 <= h <= 1.0 and -1.0 <= v <= 1.0):
-            raise ValueError(f"h and v must be in [-1, +1], received h={h}, v={v}")
+    @property
+    def position(self) -> tuple[float, float]:
+        """The current ``(h, v)``; ``(0.0, 0.0)`` is the neutral pose."""
+        return self._pose
 
     @staticmethod
     def _tail(text: str, limit: int = 20) -> str:
         return "\n".join(text.strip().splitlines()[-limit:])
 
-    def _run(self, action: str, h: float = 0.0, v: float = 0.0) -> dict[str, Any]:
+    def _run(self, action: str, h: float, v: float) -> dict[str, Any]:
+        try:
+            blender = blender_executable()
+        except FileNotFoundError as error:
+            raise BlenderWorkerError(str(error)) from error
         command = [
-            str(blender_executable()), "--background", str(self.scene), "--python-exit-code", "1",
-            "--python", str(WORKER), "--", action, "--h", str(h), "--v", str(v), "--save",
+            str(blender), "--background", "--factory-startup", str(self.scene), "--python-exit-code", "1",
+            "--python", str(WORKER), "--", action, f"--h={h!r}", f"--v={v!r}", "--scene", str(self.scene),
         ]
         try:
             result = subprocess.run(command, text=True, capture_output=True, timeout=self.timeout)
         except subprocess.TimeoutExpired as error:
-            raise BlenderWorkerError(f"Blender {action} timed out after {self.timeout:.0f} s") from error
+            raise BlenderWorkerError(f"Blender {action} did not finish within {self.timeout:g} s") from error
         except OSError as error:
             raise BlenderWorkerError(f"Could not launch Blender for {action}: {error}") from error
         log = result.stdout + "\n" + result.stderr
@@ -72,23 +108,39 @@ class Eyes:
         return json.loads(line[len(RESULT_PREFIX):])
 
     def move(self, h: float, v: float) -> dict[str, Any]:
-        """Persist an absolute binocular fixation pose for normalized ``h, v``."""
-        self._validate(h, v)
-        return self._run("move", h, v)
+        """Fixate both eyes for normalised ``h, v`` in [-1, +1] and return the measured pose.
+
+        ``h = +1`` looks image-right, ``v = +1`` looks up. The pose is absolute:
+        it replaces the previous one. An out-of-range or non-numeric input
+        raises ``ValueError`` and leaves the current pose unchanged.
+        """
+        h, v = _coordinate("h", h), _coordinate("v", v)
+        state = self._run("move", h, v)
+        self._pose = (h, v)
+        return state
 
     def reset(self) -> dict[str, Any]:
-        """Persist the exact calibrated neutral fixation pose."""
-        return self._run("reset")
+        """Return both eyes to the calibrated neutral pose and return the measured pose."""
+        state = self._run("reset", 0.0, 0.0)
+        self._pose = (0.0, 0.0)
+        return state
 
     def render(self, output_path: str | Path | None = None) -> Path:
-        """Render the current saved pose to a real 1024 × 1024 PNG."""
+        """Render the current pose to a 1024 x 1024 PNG and return its absolute path.
+
+        With no argument the image is ``output_dir/eye_render_NNNN.png``. A
+        relative path is placed under ``output_dir``; an absolute path is used
+        as given. Blender's report for the frame is kept in ``last_render``.
+        """
         if output_path is None:
             self._render_index += 1
             output = self.output_dir / f"eye_render_{self._render_index:04d}.png"
         else:
-            candidate = Path(output_path)
+            candidate = Path(output_path).expanduser()
             output = candidate if candidate.is_absolute() else self.output_dir / candidate
         try:
-            return render(output, scene=self.scene, timeout=self.timeout)
+            path, details = render_with_details(output, scene=self.scene, timeout=self.timeout, pose=self._pose)
         except RenderError as error:
             raise BlenderWorkerError(str(error)) from error
+        self.last_render = details
+        return path

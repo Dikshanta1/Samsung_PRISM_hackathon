@@ -38,3 +38,12 @@ BLENDER_BIN=/absolute/path/to/Blender ./scripts/run_smoke_test.sh
 | `docs/` | Supporting design documentation |
 
 See [ENVIRONMENT_REPORT.md](ENVIRONMENT_REPORT.md), [ARCHITECTURE.md](ARCHITECTURE.md), and [INTERFACE_CONTRACT.md](INTERFACE_CONTRACT.md).
+
+## Stage 1 build
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --python blender/build_scene.py -- renders
+/Applications/Blender.app/Contents/MacOS/Blender --background blender/scene.blend --python tests/test_eye_rig.py
+```
+
+See `docs/STAGE1_ASSET_AND_RIG_REPORT.md` after the scene is built.

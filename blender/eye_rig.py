@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import sqrt
+import bmesh
 from mathutils import Matrix, Vector
 import bpy
 
@@ -10,6 +12,11 @@ EYE_CENTERS = {
     "L": Vector((-0.066, -0.133, 0.055)),
     "R": Vector((0.066, -0.133, 0.055)),
 }
+
+
+def _smooth(obj: bpy.types.Object) -> None:
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = True
 
 
 def _parent_to_bone(obj: bpy.types.Object, armature: bpy.types.Object, bone_name: str) -> None:
@@ -55,22 +62,39 @@ def create_eye_geometry(
     eye = bpy.context.active_object
     eye.name = f"Eye_{side}"
     eye.data.materials.append(sclera_material)
+    _smooth(eye)
     _parent_to_bone(eye, armature, f"EyeBone_{side}")
 
-    # Flattened spheres provide curved, attached iris/pupil geometry at the anterior surface.
-    for label, radius, depth, material in (
-        ("Iris", 0.019, 0.0030, iris_material),
-        ("Pupil", 0.0085, 0.0035, pupil_material),
+    # Spherical-cap shells conform to the 37 mm sclera surface without rim overhang,
+    # folded edge normals, inter-mesh intersection, or cast drop shadows.
+    for label, radius, depth, r_shell, material in (
+        ("Iris", 0.019, 0.0020, 0.03730, iris_material),
+        ("Pupil", 0.0072, 0.0010, 0.03755, pupil_material),
     ):
+        y_origin = sqrt(r_shell * r_shell - radius * radius) - depth
         bpy.ops.mesh.primitive_uv_sphere_add(
-            segments=40,
-            ring_count=20,
+            segments=48,
+            ring_count=24,
             radius=1,
-            location=center + Vector((0, -0.0362 - depth, 0)),
+            location=center + Vector((0, -y_origin, 0)),
         )
         feature = bpy.context.active_object
         feature.name = f"{label}_{side}"
         feature.scale = (radius, depth, radius)
+        bm = bmesh.new()
+        bm.from_mesh(feature.data)
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > 1e-4], context="VERTS")
+        for vertex in bm.verts:
+            lx, lz = vertex.co.x, vertex.co.z
+            unit_r_sq = min(1.0, lx * lx + lz * lz)
+            rho_sq = (radius ** 2) * unit_r_sq
+            dy = -sqrt(max(0.0, r_shell * r_shell - rho_sq))
+            vertex.co.y = (dy + y_origin) / depth
+        bm.to_mesh(feature.data)
+        bm.free()
+        feature.data.update()
+        _smooth(feature)
+        feature.visible_shadow = False
         feature.data.materials.append(material)
         feature.parent = eye
         feature.matrix_parent_inverse = eye.matrix_world.inverted()

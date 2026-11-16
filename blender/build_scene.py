@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import radians
+from math import radians, sqrt
 from pathlib import Path
 import sys
 
@@ -25,7 +25,7 @@ def parse_render_directory() -> Path:
     return Path(args[0]).resolve() if args else ROOT / "renders"
 
 
-def material(name: str, color: tuple[float, float, float, float], metallic: float = 0.0, roughness: float = 0.5) -> bpy.types.Material:
+def material(name: str, color: tuple[float, float, float, float], metallic: float = 0.0, roughness: float = 0.5, specular: float = 0.5) -> bpy.types.Material:
     value = bpy.data.materials.new(name)
     value.diffuse_color = color
     value.use_nodes = True
@@ -33,6 +33,7 @@ def material(name: str, color: tuple[float, float, float, float], metallic: floa
     node.inputs["Base Color"].default_value = color
     node.inputs["Roughness"].default_value = roughness
     node.inputs["Metallic"].default_value = metallic
+    node.inputs["Specular IOR Level"].default_value = specular
     return value
 
 
@@ -62,14 +63,30 @@ def add_torus(name: str, location: Vector, major: float, minor: float, mat: bpy.
 
 def create_head(skin: bpy.types.Material, socket: bpy.types.Material, lip: bpy.types.Material, dark: bpy.types.Material) -> None:
     head = add_uv("HumanHead", (0, 0.035, 0.035), (0.175, 0.145, 0.235), skin)
+    bpy.context.view_layer.update()
+    mw = head.matrix_world
+    mwi = mw.inverted()
+    for vertex in head.data.vertices:
+        wco = mw @ vertex.co
+        if wco.y > 0.0:
+            continue
+        for centre in EYE_CENTERS.values():
+            dx, dz = wco.x - centre.x, wco.z - centre.z
+            r_sq = dx * dx + dz * dz
+            if r_sq < 0.043 ** 2:
+                target_y = centre.y + sqrt(0.043 ** 2 - r_sq)
+                if wco.y < target_y:
+                    wco.y = target_y
+                    vertex.co = mwi @ wco
+    head.data.update()
     # Ears, neck, nose and lips make the fallback clearly human rather than a bare sphere.
     add_uv("Ear_L", (-0.178, 0.035, 0.045), (0.032, 0.020, 0.052), skin)
     add_uv("Ear_R", (0.178, 0.035, 0.045), (0.032, 0.020, 0.052), skin)
     add_uv("Neck", (0, 0.075, -0.205), (0.075, 0.070, 0.095), skin)
-    add_uv("Nose", (0, -0.145, 0.020), (0.027, 0.036, 0.050), skin)
+    add_uv("Nose", (0, -0.145, 0.015), (0.016, 0.036, 0.048), skin)
     add_uv("Mouth", (0, -0.145, -0.070), (0.062, 0.009, 0.017), lip)
     for side, centre in EYE_CENTERS.items():
-        add_torus(f"SocketRim_{side}", centre + Vector((0, 0.008, 0)), 0.044, 0.008, socket)
+        add_torus(f"SocketRim_{side}", centre + Vector((0, 0.009, 0)), 0.0435, 0.0068, socket)
         brow = add_uv(f"Brow_{side}", (centre.x, -0.145, 0.108), (0.058, 0.012, 0.012), dark)
         brow.rotation_euler.y = radians(-8 if side == "L" else 8)
 
@@ -96,7 +113,7 @@ def build(render_dir: Path) -> None:
     dark = material("HairAndBrow", (0.025, 0.012, 0.008, 1), roughness=0.82)
     sclera = material("Sclera", (0.92, 0.92, 0.86, 1), roughness=0.34)
     iris = material("Iris", (0.04, 0.23, 0.16, 1), roughness=0.30)
-    pupil = material("Pupil", (0.003, 0.003, 0.004, 1), roughness=0.20)
+    pupil = material("Pupil", (0.003, 0.003, 0.004, 1), roughness=0.25, specular=0.04)
     create_head(skin, socket, lip, dark)
     rig = create_eye_armature()
     for side in EYE_CENTERS:
@@ -109,14 +126,16 @@ def build(render_dir: Path) -> None:
     # Neutral means "both eyes fixating the neutral target", not zero rotation.
     reset_fixation()
     render(render_dir / "stage1_front.png")
-    # Each test poses only one bone from the parallel zero pose; the other stays
-    # at zero. One render exercises yaw and the other pitch, so both axes are
-    # visibly covered (pitch > 0 looks up, yaw > 0 looks toward image-right).
-    zero_pose(rig)
-    set_eye_rotation(rig, "L", 0.0, radians(18))
+    # Each test poses only one bone relative to the neutral front pose while the
+    # other eye stays completely fixed. One render exercises yaw and the other
+    # pitch, so both axes and single-eye independence are visibly covered.
+    reset_fixation()
+    neutral_yaw_l = rig.pose.bones["EyeBone_L"].matrix_basis.to_euler("XYZ").y
+    set_eye_rotation(rig, "L", 0.0, neutral_yaw_l - radians(18))
     render(render_dir / "stage1_left_eye_rotation.png")
-    zero_pose(rig)
-    set_eye_rotation(rig, "R", radians(18), 0.0)
+    reset_fixation()
+    neutral_yaw_r = rig.pose.bones["EyeBone_R"].matrix_basis.to_euler("XYZ").y
+    set_eye_rotation(rig, "R", radians(18), neutral_yaw_r)
     render(render_dir / "stage1_right_eye_rotation.png")
     # Save the scene in the calibrated, converged neutral pose.
     reset_fixation()

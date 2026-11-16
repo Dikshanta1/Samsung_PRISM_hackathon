@@ -12,7 +12,7 @@ import bpy
 from mathutils import Vector
 
 RENDER_ENGINE = "BLENDER_EEVEE"
-RENDER_SAMPLES = 32
+RENDER_SAMPLES = 64
 VIEW_TRANSFORM = "Standard"
 WORLD_COLOR = (0.025, 0.025, 0.025)
 WORLD_STRENGTH = 1.0

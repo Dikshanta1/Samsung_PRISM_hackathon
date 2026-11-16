@@ -115,7 +115,7 @@ The focal lengths and principal point in `K` are also checked directly against t
 | `KeyLight` | Area, disk | `(-0.32, -0.62, 0.38)` | 5 W | 0.30 m |
 | `FillLight` | Area, disk | `(0.34, -0.55, 0.12)` | 2 W | 0.30 m |
 
-Both aim at `(0, -0.10, 0.04)` and are transform-locked. The world is a uniform `(0.025, 0.025, 0.025)` background. Renders use EEVEE with 32 samples and shadows, the Standard view transform, no look, exposure 0 and gamma 1. `verify_lighting()` rejects any deviation, and the full lighting state is compared before and after each render.
+Both aim at `(0, -0.10, 0.04)` and are transform-locked. The world is a uniform `(0.025, 0.025, 0.025)` background. Renders use EEVEE with 64 samples and shadows, the Standard view transform, no look, exposure 0 and gamma 1. `verify_lighting()` rejects any deviation, and the full lighting state is compared before and after each render.
 
 ## Rendering
 
@@ -156,9 +156,9 @@ Measured pupil shifts relative to the centre render, in pixels `(Δu, Δv)`:
 
 | Pose | Input `(h, v)` | `Eye_L` | `Eye_R` |
 | --- | --- | --- | --- |
-| Left | `(-1, 0)` | `(-19.5, 0.0)` | `(-18.0, +0.5)` |
-| Right | `(+1, 0)` | `(+18.5, 0.0)` | `(+19.0, 0.0)` |
-| Up | `(0, +1)` | `(0.0, -18.5)` | `(0.0, -18.5)` |
-| Down | `(0, -1)` | `(0.0, +18.5)` | `(+0.5, +18.5)` |
+| Left | `(-1, 0)` | `(-16.0, 0.0)` | `(-15.5, 0.0)` |
+| Right | `(+1, 0)` | `(+15.5, 0.0)` | `(+16.0, 0.0)` |
+| Up | `(0, +1)` | `(0.0, -16.0)` | `(0.0, -16.0)` |
+| Down | `(0, -1)` | `(0.0, +16.0)` | `(0.0, +16.0)` |
 
 `test_renderer.py` checks that `render()` returns the path of a 1024 × 1024 PNG, that two renders of the same pose are byte-identical, that `scene.blend` is unchanged, and that each failure above is reported.

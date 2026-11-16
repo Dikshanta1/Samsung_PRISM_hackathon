@@ -26,7 +26,7 @@ import bpy
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender"))
 from calibration import state, validate_input
-from camera_setup import camera_state, projection_matrix, pupil_centres_px, verify_camera
+from camera_setup import calibration_report, camera_state, projection_matrix, pupil_centres_px, verify_camera
 from lighting_setup import lighting_state, verify_lighting
 from render_frame import render_still
 
@@ -75,6 +75,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     result["eye_rotation_euler_xyz_degrees"] = eye_rotations_degrees()
     result["pupil_center_2D"] = pupil_centres_px(scene)
     result["camera_matrix"] = projection_matrix(scene)
+    result["camera_calibration"] = calibration_report(scene)
 
     if args.action == "render":
         if args.output is None:

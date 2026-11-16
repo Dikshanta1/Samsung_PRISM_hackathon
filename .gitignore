@@ -1,0 +1,16 @@
+# Generated Blender and Python files
+__pycache__/
+*.py[cod]
+*.blend1
+
+# Rendered and generated artifacts (directories retained via .gitkeep)
+renders/*
+!renders/.gitkeep
+outputs/*
+!outputs/.gitkeep
+metadata/*.json
+!metadata/.gitkeep
+
+# Local Blender and editor settings
+.DS_Store
+.vscode/

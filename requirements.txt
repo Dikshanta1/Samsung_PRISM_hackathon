@@ -1,0 +1,2 @@
+# Stage 0 intentionally has no third-party Python dependencies.
+# Blender bundles bpy; it must be invoked through the Blender executable.

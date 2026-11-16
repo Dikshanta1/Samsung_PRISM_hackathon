@@ -1,4 +1,18 @@
-"""One-command generator for the official ten-direction clockwise sequence."""
+"""One-command generator for the official ten-direction clockwise sequence.
+
+    python3 scripts/generate_official_sequence.py
+
+For k = 0..9: theta = 2*pi*k/10, h = sin(theta), v = cos(theta), starting at the
+top and going clockwise in the image. Each frame is posed and rendered in the
+real Blender scene through ``wrapper.eyes.Eyes``; nothing is typed in by hand
+and no earlier image is reused. The command writes
+
+    renders/frame_00.png ... renders/frame_09.png
+    metadata/frame_00.json ... frame_09.json, metadata/official_sequence.json
+    outputs/contact_sheet.png
+
+and then checks them with ``tests/test_official_sequence.py``.
+"""
 from __future__ import annotations
 
 from math import pi, sin, cos
@@ -6,9 +20,11 @@ from pathlib import Path
 import json
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 from wrapper.blender_runner import blender_executable
 from wrapper.eyes import Eyes
 from wrapper.renderer import png_size
@@ -16,6 +32,8 @@ from wrapper.renderer import png_size
 RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
 CONTACT_SHEET = ROOT / "outputs" / "contact_sheet.png"
+MANIFEST = METADATA / "official_sequence.json"
+FRAME_COUNT = 10
 DIRECTIONS = (
     "Top", "Upper-right", "Right-upper", "Right-lower", "Lower-right",
     "Bottom", "Lower-left", "Left-lower", "Left-upper", "Upper-left",
@@ -23,8 +41,16 @@ DIRECTIONS = (
 
 
 def sequence() -> list[tuple[int, float, float, float, str]]:
-    """Return the official formula-derived frames without rounded computation."""
-    return [(k, 2.0 * pi * k / 10.0, sin(2.0 * pi * k / 10.0), cos(2.0 * pi * k / 10.0), DIRECTIONS[k]) for k in range(10)]
+    """Return ``(k, theta, h, v, direction)`` for the ten frames, at full double precision."""
+    return [(k, 2.0 * pi * k / 10.0, sin(2.0 * pi * k / 10.0), cos(2.0 * pi * k / 10.0), DIRECTIONS[k])
+            for k in range(FRAME_COUNT)]
+
+
+def remove_previous_outputs() -> None:
+    """Delete every earlier frame, record and sheet so none can be mistaken for this run's."""
+    stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), MANIFEST, CONTACT_SHEET]
+    for path in stale:
+        path.unlink(missing_ok=True)
 
 
 def create_contact_sheet(frames: list[Path], labels: list[str]) -> Path:
@@ -41,9 +67,11 @@ def create_contact_sheet(frames: list[Path], labels: list[str]) -> Path:
 
 
 def generate() -> Path:
-    """Render all ten official frames and write generated, measured metadata."""
+    """Render all ten official frames, write measured metadata, and verify the result."""
+    started = time.time()
     RENDERS.mkdir(parents=True, exist_ok=True)
     METADATA.mkdir(parents=True, exist_ok=True)
+    remove_previous_outputs()
     eyes = Eyes(RENDERS)
     records, paths, labels = [], [], []
     camera_matrix = None
@@ -53,6 +81,8 @@ def generate() -> Path:
         render = eyes.last_render
         if render is None or png_size(path) != (1024, 1024):
             raise RuntimeError(f"Frame {frame:02d} was not a valid 1024 x 1024 PNG")
+        if render["inputs"] != {"h": h, "v": v}:
+            raise RuntimeError(f"Frame {frame:02d} was rendered with {render['inputs']}, not h={h!r}, v={v!r}")
         if not render["camera_fixed"] or not render["lighting_constant"]:
             raise RuntimeError(f"Frame {frame:02d} did not preserve camera or lighting")
         if camera_matrix is None:
@@ -64,26 +94,31 @@ def generate() -> Path:
             "direction": direction,
             "theta_radians": theta,
             "inputs": {"h": h, "v": v},
-            "image": str(path),
-            "world_eye_rotations_quaternion": movement["world_eye_rotations_quaternion"],
+            "image": path.relative_to(ROOT).as_posix(),
+            # Everything below was measured by Blender in the process that rendered this image.
+            "world_eye_rotations_quaternion": render["world_eye_rotations_quaternion"],
             "world_eye_rotations_euler_xyz_degrees": render["eye_rotation_euler_xyz_degrees"],
             "pupil_center_2D": render["pupil_center_2D"],
             "camera_calibration": render["camera_calibration"],
             "camera_matrix": render["camera_matrix"],
-            "angular_error_degrees": movement["angular_error_degrees"],
-            "convergence": movement["convergence"],
+            "angular_error_degrees": render["angular_error_degrees"],
+            "convergence": render["convergence"],
         }
+        if movement["pupil_center_2D"] != render["pupil_center_2D"]:
+            raise RuntimeError(f"Frame {frame:02d}: the rendered pose differs from the pose set by move()")
         (METADATA / f"frame_{frame:02d}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
         records.append(record)
         paths.append(path)
-        labels.append(f"{frame:02d}  {direction}")
-        print(f"FRAME_OK {frame:02d} {direction} h={h:.16g} v={v:.16g} path={path}")
+        labels.append(f"{frame:02d}  {direction} | h = {h:+.3f}   v = {v:+.3f}")
+        print(f"FRAME_OK {frame:02d} {direction} h={h:.17g} v={v:.17g} path={path}", flush=True)
     contact = create_contact_sheet(paths, labels)
-    manifest = METADATA / "official_sequence.json"
-    manifest.write_text(json.dumps({"formula": "theta=2*pi*k/10; h=sin(theta); v=cos(theta)", "frames": records,
-                                    "contact_sheet": str(contact)}, indent=2), encoding="utf-8")
-    print(f"SEQUENCE_OK frames=10 manifest={manifest} contact_sheet={contact}")
-    return manifest
+    MANIFEST.write_text(json.dumps({"formula": "theta=2*pi*k/10; h=sin(theta); v=cos(theta)", "frames": records,
+                                    "contact_sheet": contact.relative_to(ROOT).as_posix()}, indent=2), encoding="utf-8")
+    print(f"SEQUENCE_OK frames={FRAME_COUNT} manifest={MANIFEST} contact_sheet={contact}", flush=True)
+
+    from test_official_sequence import verify
+    verify(generated_after=started)
+    return MANIFEST
 
 
 if __name__ == "__main__":

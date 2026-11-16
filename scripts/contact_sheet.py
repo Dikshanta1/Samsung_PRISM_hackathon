@@ -1,4 +1,9 @@
-"""Blender-runtime contact-sheet compositor for the ten official PNG frames."""
+"""Blender-runtime contact-sheet compositor for the ten official PNG frames.
+
+Lays the frames out five to a row, in sequence order, each 640 px wide with its
+label underneath. The frames are shown as emission textures under the Standard
+view transform, so their colours are not altered.
+"""
 from __future__ import annotations
 
 import argparse
@@ -6,6 +11,15 @@ from pathlib import Path
 import sys
 
 import bpy
+
+
+TILE = 1.0  # one frame, in scene units
+GAP = 0.06
+LABEL_BAND = 0.26  # space under each frame for its label
+PIXELS_PER_UNIT = 640
+COLUMNS, ROWS = 5, 2
+SHEET_WIDTH = COLUMNS * TILE + (COLUMNS + 1) * GAP
+SHEET_HEIGHT = ROWS * (TILE + LABEL_BAND) + (ROWS + 1) * GAP
 
 
 def add_tile(image_path: Path, label: str, x: float, y: float) -> None:
@@ -21,17 +35,17 @@ def add_tile(image_path: Path, label: str, x: float, y: float) -> None:
     links.new(texture.outputs["Color"], emission.inputs["Color"])
     links.new(emission.outputs["Emission"], shader_output.inputs["Surface"])
 
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(x, y + 0.08, 0.0))
+    bpy.ops.mesh.primitive_plane_add(size=TILE, location=(x, y, 0.0))
     tile = bpy.context.active_object
-    tile.scale = (0.52, 0.52, 1.0)
     tile.data.materials.append(material)
 
-    bpy.ops.object.text_add(location=(x, y - 0.50, 0.01))
+    bpy.ops.object.text_add(location=(x, y - TILE / 2 - LABEL_BAND / 2, 0.01))
     text = bpy.context.active_object
-    text.data.body = label
+    text.data.body = label.replace(" | ", "\n")  # " | " separates the two label lines
     text.data.align_x = "CENTER"
     text.data.align_y = "CENTER"
-    text.data.size = 0.13
+    text.data.size = 0.075
+    text.data.space_line = 1.15
     text.data.extrude = 0.0
     text.data.materials.append(bpy.data.materials["ContactSheetLabel"])
 
@@ -53,23 +67,29 @@ def build(frame_paths: list[Path], labels: list[str], output: Path) -> None:
     for index, (path, label) in enumerate(zip(frame_paths, labels)):
         if not path.is_file():
             raise FileNotFoundError(path)
-        column, row = index % 5, index // 5
-        add_tile(path, label, (column - 2) * 1.16, 0.70 - row * 1.25)
+        column, row = index % COLUMNS, index // COLUMNS
+        x = -SHEET_WIDTH / 2 + GAP + TILE / 2 + column * (TILE + GAP)
+        y = SHEET_HEIGHT / 2 - GAP - TILE / 2 - row * (TILE + LABEL_BAND + GAP)
+        add_tile(path, label, x, y)
 
     bpy.ops.object.camera_add(location=(0.0, 0.0, 10.0))
     camera = bpy.context.active_object
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = 6.1
+    camera.data.ortho_scale = SHEET_WIDTH  # the sheet is wider than tall, so this spans its width
     camera.rotation_euler = (0.0, 0.0, 0.0)
     # Default camera looks -Z, so it already looks at the XY tile plane.
     bpy.context.scene.camera = camera
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
-    scene.render.resolution_x = 2500
-    scene.render.resolution_y = 1200
+    scene.render.resolution_x = round(SHEET_WIDTH * PIXELS_PER_UNIT)
+    scene.render.resolution_y = round(SHEET_HEIGHT * PIXELS_PER_UNIT)
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
+    scene.render.image_settings.color_depth = "8"
+    scene.render.use_stamp = False
+    scene.view_settings.view_transform = "Standard"  # show the frames' own colours
+    scene.view_settings.look = "None"
     if scene.world is None:
         scene.world = bpy.data.worlds.new("ContactSheetWorld")
     scene.world.color = (0.035, 0.035, 0.035)

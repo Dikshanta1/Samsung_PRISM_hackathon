@@ -16,6 +16,32 @@ v = cos(theta)
 
 The labels are ordered `Top`, `Upper-right`, `Right-upper`, `Right-lower`, `Lower-right`, `Bottom`, `Lower-left`, `Left-lower`, `Left-upper`, and `Upper-left`.
 
-Each pass uses the real `Eyes` wrapper, renders a fresh `renders/frame_00.png` through `renders/frame_09.png`, validates that PNG as 1024 × 1024, and writes generated Blender-measured JSON to `metadata/frame_00.json` through `metadata/frame_09.json`. The JSON includes formula inputs, world eye rotations, projected pupil centres, the camera projection matrix, and the full camera calibration derived from the active scene camera.
+Clockwise is as seen in the image: `h = +1` is image-right and `v = +1` is up.
 
-The command also creates `outputs/contact_sheet.png` with every numbered frame and direction label. It fails if camera/lighting locking or output validation fails.
+## What one run does
+
+1. Deletes any earlier `renders/frame_*.png`, `metadata/frame_*.json`, `metadata/official_sequence.json` and `outputs/contact_sheet.png`, so no previous image can be reused.
+2. For each `k`, calls `Eyes.move(h, v)` and `Eyes.render()` on the real `blender/scene.blend` and writes `renders/frame_00.png` to `renders/frame_09.png` (1024 × 1024, 8-bit RGB).
+3. Writes `metadata/frame_00.json` to `frame_09.json` and the combined `metadata/official_sequence.json`. Every value is either computed from the formula or reported by the Blender process that rendered the frame: `frame`, `direction`, `theta_radians`, `inputs` (`h`, `v` at full double precision), `image`, world-frame eye rotations (quaternion and XYZ Euler degrees), `pupil_center_2D`, `camera_matrix`, the full `camera_calibration`, `angular_error_degrees` and `convergence`.
+4. Builds `outputs/contact_sheet.png` (3430 × 1728): the ten frames in order, five per row, each labelled with its frame number, direction, `h` and `v`.
+5. Runs the acceptance check below and exits with an error if any part fails.
+
+A run takes about 35 seconds.
+
+## Acceptance check
+
+```bash
+python3 tests/test_official_sequence.py
+```
+
+Verifies the generated files (the generator runs the same check on its own output):
+
+- exactly `frame_00.png` to `frame_09.png` exist, each a valid 1024 × 1024 8-bit RGB PNG, and no two are the same image;
+- `theta`, `h` and `v` in the metadata equal the formula bit for bit, with the labels above;
+- the pupil found in each image's decoded pixels is within 2 px of the recorded `pupil_center_2D`;
+- measured in those pixels, each pupil is displaced at least 10 px at clock angle `36k°` (within 8°), which also fixes the order as clockwise from the top;
+- the camera matrix and calibration are identical in every frame, the camera is 0.400 m from the eye midpoint, and the forehead region is pixel-identical across frames.
+
+Measured in the latest run, `Eye_L` pupil clock angle and displacement per frame: 360°, 36°, 72°, 109°, 144°, 180°, 215°, 252°, 288°, 325°, each 15.3 to 16.1 px.
+
+The frames, metadata and contact sheet are generated artifacts and are ignored by git; rerun the command to recreate them.

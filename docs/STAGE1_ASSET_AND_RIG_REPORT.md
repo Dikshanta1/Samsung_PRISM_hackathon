@@ -25,7 +25,7 @@ The bones point along world +Z, so bone-local X is the pitch axis, bone-local Y 
 
 ## Fixed target, camera, renders, and commands
 
-`FixationTarget` is at `(0, -0.483, 0.055)`, exactly 0.350 m in front of the eye midpoint. `Camera` is at `(0, -0.533, 0.055)`, exactly 0.400 m in front of that midpoint, and faces the head. Lighting is fixed before all three 1024 × 1024 PNG renders.
+`FixationTarget` is at `(0, -0.483, 0.055)`, exactly 0.350 m in front of the eye midpoint. `Camera` is at `(0, -0.533, 0.055)`, exactly 0.400 m in front of that midpoint, and faces the head. Lighting is fixed before all three 1024 × 1024 PNG renders. Since Stage 3 the camera and lighting are created by `blender/camera_setup.py` and `blender/lighting_setup.py` and rendered with EEVEE; see `docs/CAMERA_CALIBRATION.md`.
 
 ```bash
 /Applications/Blender.app/Contents/MacOS/Blender --background --python blender/build_scene.py -- "$PWD/renders"

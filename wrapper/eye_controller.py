@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import subprocess
 from .blender_runner import blender_executable
+from .renderer import render as render_frame
 
 class EyeController:
     def __init__(self, project_root: Path | None = None) -> None:
@@ -22,3 +23,7 @@ class EyeController:
 
     def reset(self) -> dict[str, object]:
         return self.move(0.0, 0.0)
+
+    def render(self, output_path: str | Path) -> Path:
+        """Render the current eye position to a 1024 x 1024 PNG and return its path."""
+        return render_frame(output_path, scene=self.scene)

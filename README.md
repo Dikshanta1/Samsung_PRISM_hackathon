@@ -47,3 +47,19 @@ See [ENVIRONMENT_REPORT.md](ENVIRONMENT_REPORT.md), [ARCHITECTURE.md](ARCHITECTU
 ```
 
 See `docs/STAGE1_ASSET_AND_RIG_REPORT.md` after the scene is built.
+
+## Stage 3 camera and rendering
+
+The camera is locked 0.400 m forward of the eye midpoint, facing it, and renders 1024 × 1024 PNGs under fixed lighting.
+
+```python
+from wrapper.renderer import render
+path = render("renders/frame.png")
+```
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup blender/scene.blend --python-exit-code 1 --python tests/test_camera.py
+python3 tests/test_renderer.py
+```
+
+See `docs/CAMERA_CALIBRATION.md` for the reference point, intrinsic matrix, rotation, translation, projection matrix and image coordinate convention.

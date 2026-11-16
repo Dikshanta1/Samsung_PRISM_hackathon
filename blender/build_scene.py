@@ -10,8 +10,11 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from calibration import CAMERA_DISTANCE_M, NEUTRAL_TARGET, eye_midpoint, reset as reset_fixation
+from calibration import NEUTRAL_TARGET, reset as reset_fixation
+from camera_setup import create_camera
 from eye_rig import EYE_CENTERS, create_eye_armature, create_eye_geometry, set_eye_rotation, zero_pose
+from lighting_setup import create_lighting
+from render_frame import render_still
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,60 +74,14 @@ def create_head(skin: bpy.types.Material, socket: bpy.types.Material, lip: bpy.t
         brow.rotation_euler.y = radians(-8 if side == "L" else 8)
 
 
-def look_at(obj: bpy.types.Object, point: Vector) -> None:
-    obj.rotation_euler = (point - obj.location).to_track_quat("-Z", "Y").to_euler()
-
-
-def create_camera_and_lighting() -> None:
-    # The camera sits exactly 0.400 m forward of the eye midpoint along the
-    # face's -Y axis and its optical axis passes through that midpoint, so the
-    # midpoint projects to the image centre and the camera matrix is a pure
-    # 90-degree rotation about X.
-    midpoint = eye_midpoint()
-    bpy.ops.object.camera_add(location=midpoint + Vector((0, -CAMERA_DISTANCE_M, 0)))
-    camera = bpy.context.active_object
-    camera.name = "Camera"
-    camera.data.lens = 40
-    look_at(camera, midpoint)
-    bpy.context.scene.camera = camera
-
-    for location, power, size in (((-0.32, -0.42, 0.38), 700, 0.30), ((0.30, -0.32, 0.16), 350, 0.22)):
-        bpy.ops.object.light_add(type="AREA", location=location)
-        lamp = bpy.context.active_object
-        lamp.data.energy = power
-        lamp.data.shape = "DISK"
-        lamp.data.size = size
-        look_at(lamp, Vector((0, 0, 0.03)))
-
-
-def configure_render(path: Path) -> None:
-    scene = bpy.context.scene
-    scene.render.engine = "BLENDER_WORKBENCH"
-    scene.render.resolution_x = 1024
-    scene.render.resolution_y = 1024
-    scene.render.resolution_percentage = 100
-    scene.render.image_settings.file_format = "PNG"
-    scene.render.film_transparent = False
-    scene.display.shading.light = "STUDIO"
-    scene.display.shading.studio_light = "paint.sl"
-    scene.display.shading.color_type = "MATERIAL"
-    scene.display.shading.show_shadows = True
-    scene.display.shading.show_cavity = True
-    scene.world.color = (0.025, 0.025, 0.025)
-    scene.render.filepath = str(path)
-
-
 def render(path: Path) -> None:
-    configure_render(path)
-    bpy.ops.render.render(write_still=True)
-    if not path.is_file() or path.stat().st_size == 0:
-        raise RuntimeError(f"Missing render: {path}")
+    render_still(path)
 
 
 def clean_scene() -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
-    for datablocks in (bpy.data.materials, bpy.data.armatures):
+    for datablocks in (bpy.data.materials, bpy.data.armatures, bpy.data.cameras, bpy.data.lights):
         for block in datablocks:
             if block.users == 0:
                 datablocks.remove(block)
@@ -147,7 +104,8 @@ def build(render_dir: Path) -> None:
     bpy.ops.object.empty_add(type="SPHERE", location=NEUTRAL_TARGET)
     bpy.context.active_object.name = "FixationTarget"
     bpy.context.active_object.empty_display_size = 0.025
-    create_camera_and_lighting()
+    create_camera(bpy.context.scene)
+    create_lighting(bpy.context.scene)
     # Neutral means "both eyes fixating the neutral target", not zero rotation.
     reset_fixation()
     render(render_dir / "stage1_front.png")

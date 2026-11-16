@@ -14,7 +14,7 @@ from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender"))
-from eye_rig import EYE_CENTERS, reset_eyes, set_eye_rotation, world_eye_center
+from eye_rig import EYE_CENTERS, zero_pose, set_eye_rotation, world_eye_center
 
 ANGLE = 0.30  # radians used for direction checks (~17 degrees)
 MIN_SHIFT_PX = 20.0  # required pupil shift along the commanded image axis
@@ -61,11 +61,11 @@ def check_directions(rig: bpy.types.Object) -> None:
         ("right", 0.0, ANGLE, Vector((1, 0))),
         ("left", 0.0, -ANGLE, Vector((-1, 0))),
     )
-    reset_eyes(rig)
+    zero_pose(rig)
     neutral = {side: pupil_pixel(side) for side in SIDES}
     for side in SIDES:
         for label, pitch, yaw, expected in cases:
-            reset_eyes(rig)
+            zero_pose(rig)
             set_eye_rotation(rig, side, pitch, yaw)
             shift = pupil_pixel(side) - neutral[side]
             along = shift.dot(expected)
@@ -76,14 +76,14 @@ def check_directions(rig: bpy.types.Object) -> None:
             assert (pupil_pixel(other) - neutral[other]).length < 1e-3, f"Eye_{other} moved on Eye_{side} {label}"
         print(f"DIRECTIONS_OK Eye_{side} up/down/left/right")
 
-    reset_eyes(rig)
+    zero_pose(rig)
     for side in SIDES:
         assert (pupil_pixel(side) - neutral[side]).length < 1e-3, f"Eye_{side} did not return to neutral on reset"
 
 
 def check_pivots_and_independence(rig: bpy.types.Object) -> None:
     eyes = {side: bpy.data.objects[f"Eye_{side}"] for side in SIDES}
-    reset_eyes(rig)
+    zero_pose(rig)
     centres = {side: world_eye_center(eyes[side]) for side in SIDES}
     rotations = {side: eyes[side].matrix_world.to_quaternion() for side in SIDES}
     for side in SIDES:
@@ -92,17 +92,17 @@ def check_pivots_and_independence(rig: bpy.types.Object) -> None:
     for side in SIDES:
         other = SIDES[1 - SIDES.index(side)]
         for pitch, yaw in ((ANGLE, 0.0), (0.0, ANGLE), (-ANGLE, -ANGLE)):
-            reset_eyes(rig)
+            zero_pose(rig)
             set_eye_rotation(rig, side, pitch, yaw)
             assert near(world_eye_center(eyes[side]), centres[side]), f"Eye_{side} centre drifted at pitch={pitch}, yaw={yaw}"
             assert near(world_eye_center(eyes[other]), centres[other]), f"Eye_{other} centre moved with Eye_{side}"
             assert eyes[other].matrix_world.to_quaternion().rotation_difference(rotations[other]).angle < 1e-6, f"Eye_{other} rotated with Eye_{side}"
             # Pupil stays on the sphere: its distance from the eye centre is rotation-invariant.
-            reset_eyes(rig)
+            zero_pose(rig)
             radius = (pupil_world(side) - centres[side]).length
             set_eye_rotation(rig, side, pitch, yaw)
             assert abs((pupil_world(side) - centres[side]).length - radius) < 1e-6, f"Pupil_{side} did not rotate rigidly about the centre"
-    reset_eyes(rig)
+    zero_pose(rig)
 
 
 def main() -> None:

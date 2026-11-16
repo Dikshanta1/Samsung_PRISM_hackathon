@@ -14,6 +14,12 @@ This maps horizontal and vertical input to lateral and vertical target offsets o
 
 `reset()` calls `move(0, 0)`, recalculating the neutral pose directly. It never reverses an incremental rotation.
 
+The calibrated neutral is therefore the converged pose (each eye turned 10.68° inward), and `build_scene.py` saves `scene.blend` in it. `eye_rig.zero_pose()` is different: it zeroes the bone rotations for parallel, straight-ahead gaze and is only used by rig-level tests.
+
+Eye centres are read from the rig (`rig.matrix_world @ bone.head_local`), not from constants, and the pose is written as rotation only. Angular error and convergence are measured from the posed scene: the gaze ray runs from each eyeball's world centre through its pupil's world centre, and `convergence` reports how far the two rays miss each other and how far their meeting point is from the target.
+
+The camera sits 0.400 m forward of the eye midpoint with its optical axis through that midpoint, so the midpoint projects to pixel (512, 512).
+
 ```python
 from wrapper.eye_controller import EyeController
 eyes = EyeController()

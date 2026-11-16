@@ -96,7 +96,13 @@ def set_eye_rotation(armature: bpy.types.Object, side: str, pitch: float, yaw: f
     bpy.context.view_layer.update()
 
 
-def reset_eyes(armature: bpy.types.Object) -> None:
+def zero_pose(armature: bpy.types.Object) -> None:
+    """Zero both bone rotations: parallel, straight-ahead gaze.
+
+    This is the rig's rest pose, not the calibrated neutral. The calibrated
+    neutral converges both eyes on the fixation target; use
+    ``calibration.reset()`` for that.
+    """
     for side in EYE_CENTERS:
         set_eye_rotation(armature, side, 0.0, 0.0)
 

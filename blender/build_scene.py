@@ -10,7 +10,8 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from eye_rig import EYE_CENTERS, create_eye_armature, create_eye_geometry, reset_eyes, set_eye_rotation
+from calibration import CAMERA_DISTANCE_M, NEUTRAL_TARGET, eye_midpoint, reset as reset_fixation
+from eye_rig import EYE_CENTERS, create_eye_armature, create_eye_geometry, set_eye_rotation, zero_pose
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,13 +76,16 @@ def look_at(obj: bpy.types.Object, point: Vector) -> None:
 
 
 def create_camera_and_lighting() -> None:
-    # The midpoint of the two eye centres is (0, -0.133, 0.055); this places
-    # the virtual camera exactly 0.400 m forward along the face's -Y axis.
-    bpy.ops.object.camera_add(location=(0, -0.533, 0.055))
+    # The camera sits exactly 0.400 m forward of the eye midpoint along the
+    # face's -Y axis and its optical axis passes through that midpoint, so the
+    # midpoint projects to the image centre and the camera matrix is a pure
+    # 90-degree rotation about X.
+    midpoint = eye_midpoint()
+    bpy.ops.object.camera_add(location=midpoint + Vector((0, -CAMERA_DISTANCE_M, 0)))
     camera = bpy.context.active_object
     camera.name = "Camera"
     camera.data.lens = 40
-    look_at(camera, Vector((0, -0.015, 0.025)))
+    look_at(camera, midpoint)
     bpy.context.scene.camera = camera
 
     for location, power, size in (((-0.32, -0.42, 0.38), 700, 0.30), ((0.30, -0.32, 0.16), 350, 0.22)):
@@ -140,21 +144,24 @@ def build(render_dir: Path) -> None:
     rig = create_eye_armature()
     for side in EYE_CENTERS:
         create_eye_geometry(side, rig, sclera, iris, pupil)
-    bpy.ops.object.empty_add(type="SPHERE", location=(0, -0.483, 0.055))
+    bpy.ops.object.empty_add(type="SPHERE", location=NEUTRAL_TARGET)
     bpy.context.active_object.name = "FixationTarget"
     bpy.context.active_object.empty_display_size = 0.025
     create_camera_and_lighting()
-    reset_eyes(rig)
+    # Neutral means "both eyes fixating the neutral target", not zero rotation.
+    reset_fixation()
     render(render_dir / "stage1_front.png")
-    # Each test poses only one bone; the other remains at its neutral physical
-    # centre. One render exercises yaw and the other pitch, so both axes are
+    # Each test poses only one bone from the parallel zero pose; the other stays
+    # at zero. One render exercises yaw and the other pitch, so both axes are
     # visibly covered (pitch > 0 looks up, yaw > 0 looks toward image-right).
+    zero_pose(rig)
     set_eye_rotation(rig, "L", 0.0, radians(18))
     render(render_dir / "stage1_left_eye_rotation.png")
-    reset_eyes(rig)
+    zero_pose(rig)
     set_eye_rotation(rig, "R", radians(18), 0.0)
     render(render_dir / "stage1_right_eye_rotation.png")
-    reset_eyes(rig)
+    # Save the scene in the calibrated, converged neutral pose.
+    reset_fixation()
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "blender" / "scene.blend"))
     print("SCENE_BUILD_OK")
 

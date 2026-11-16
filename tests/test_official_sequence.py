@@ -8,7 +8,7 @@ standard library and the gaze is measured from their pixels.
 """
 from __future__ import annotations
 
-from math import atan2, cos, degrees, hypot, pi, sin
+from math import atan2, cos, degrees, hypot, pi, radians, sin
 from pathlib import Path
 import json
 import sys
@@ -22,6 +22,9 @@ from wrapper.renderer import png_size
 RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
 CONTACT_SHEET = ROOT / "outputs" / "contact_sheet.png"
+OFFICIAL_METADATA = ROOT / "metadata.json"
+OFFICIAL_KEYS = ["frame", "theta", "input", "eye_rotation_L", "eye_rotation_R",
+                 "pupil_center_2D_L", "pupil_center_2D_R", "camera_matrix"]
 DIRECTIONS = ("Top", "Upper-right", "Right-upper", "Right-lower", "Lower-right",
               "Bottom", "Lower-left", "Left-lower", "Left-upper", "Upper-left")
 MIN_RADIUS_PX = 10.0  # every frame is a full-range move; the pupil travels about 16 px
@@ -38,6 +41,11 @@ def verify(generated_after: float | None = None) -> None:
     records = manifest["frames"]
     assert len(records) == 10, f"Manifest holds {len(records)} frames"
 
+    official = json.loads(OFFICIAL_METADATA.read_text(encoding="utf-8"))
+    assert isinstance(official, list) and len(official) == 10, "metadata.json must hold one record per render"
+    if generated_after is not None:
+        assert OFFICIAL_METADATA.stat().st_mtime >= generated_after, "metadata.json is older than this run"
+
     last_row = 512 + EYE_MASK_RADIUS_PX + 20
     pixels, measured = [], []
     for k, (path, record) in enumerate(zip(frames, records)):
@@ -50,6 +58,25 @@ def verify(generated_after: float | None = None) -> None:
         assert json.loads((METADATA / f"frame_{k:02d}.json").read_text(encoding="utf-8")) == record
         if generated_after is not None:
             assert path.stat().st_mtime >= generated_after, f"{path.name} is older than this run"
+        # The official record has exactly the specified keys and the same measured values.
+        entry = official[k]
+        assert list(entry) == OFFICIAL_KEYS, f"metadata.json frame {k}: keys are {list(entry)}"
+        assert entry["frame"] == k and entry["theta"] == theta
+        assert entry["input"] == {"h": sin(theta), "v": cos(theta)}
+        for side in ("L", "R"):
+            rotation = entry[f"eye_rotation_{side}"]
+            assert rotation == record["world_eye_rotations_euler_xyz_degrees"][side] and len(rotation) == 3
+            assert entry[f"pupil_center_2D_{side}"] == record["pupil_center_2D"][side]
+            # Cross-check against the independently recorded quaternion: both must give the same gaze.
+            w, x, y, z = record["world_eye_rotations_quaternion"][side]
+            from_quaternion = (2 * (x * y - w * z), 1 - 2 * (x * x + z * z), 2 * (y * z + w * x))  # R @ +Y
+            rx, ry, rz = (radians(angle) for angle in rotation)
+            cx, sx, cy, sy, cz, sz = cos(rx), sin(rx), cos(ry), sin(ry), cos(rz), sin(rz)
+            from_euler = (cz * sy * sx - sz * cx, sz * sy * sx + cz * cx, cy * sx)  # (Rz Ry Rx) @ +Y
+            assert max(abs(a - b) for a, b in zip(from_quaternion, from_euler)) < 1e-5, \
+                f"frame {k} {side}: eye_rotation does not match the recorded quaternion"
+        assert entry["camera_matrix"] == record["camera_matrix"] == official[0]["camera_matrix"]
+        assert len(entry["camera_matrix"]) == 3 and all(len(row) == 4 for row in entry["camera_matrix"])
         # Valid 1024 x 1024 8-bit RGB PNG (every chunk CRC and the whole pixel stream are checked).
         assert png_size(path) == (1024, 1024)
         rows = read_png_rows(path, last_row)
@@ -101,7 +128,7 @@ def verify(generated_after: float | None = None) -> None:
     if generated_after is not None:
         assert CONTACT_SHEET.stat().st_mtime >= generated_after, "The contact sheet is older than this run"
     print("GAZE_MEASURED_L " + " ".join(report))
-    print(f"OFFICIAL_SEQUENCE_OK frames=10 size=1024x1024 formula=exact clockwise=true camera_fixed=true "
+    print(f"OFFICIAL_SEQUENCE_OK frames=10 size=1024x1024 formula=exact clockwise=true camera_fixed=true metadata_json=10 "
           f"contact_sheet={width}x{height}")
 
 

@@ -9,6 +9,7 @@ renders/*
 outputs/*
 !outputs/.gitkeep
 metadata/*.json
+/metadata.json
 !metadata/.gitkeep
 
 # Local Blender and editor settings

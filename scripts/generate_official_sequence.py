@@ -8,6 +8,7 @@ real Blender scene through ``wrapper.eyes.Eyes``; nothing is typed in by hand
 and no earlier image is reused. The command writes
 
     renders/frame_00.png ... renders/frame_09.png
+    metadata.json                      (official format, one record per render)
     metadata/frame_00.json ... frame_09.json, metadata/official_sequence.json
     outputs/contact_sheet.png
 
@@ -33,6 +34,7 @@ RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
 CONTACT_SHEET = ROOT / "outputs" / "contact_sheet.png"
 MANIFEST = METADATA / "official_sequence.json"
+OFFICIAL_METADATA = ROOT / "metadata.json"
 FRAME_COUNT = 10
 DIRECTIONS = (
     "Top", "Upper-right", "Right-upper", "Right-lower", "Lower-right",
@@ -48,9 +50,27 @@ def sequence() -> list[tuple[int, float, float, float, str]]:
 
 def remove_previous_outputs() -> None:
     """Delete every earlier frame, record and sheet so none can be mistaken for this run's."""
-    stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), MANIFEST, CONTACT_SHEET]
+    stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), MANIFEST, OFFICIAL_METADATA, CONTACT_SHEET]
     for path in stale:
         path.unlink(missing_ok=True)
+
+
+def official_record(record: dict) -> dict:
+    """One render in the official ``metadata.json`` layout, with exactly its eight keys.
+
+    Rotations are world-frame XYZ Euler angles in degrees; pupil centres are
+    pixels (origin top-left, y down); the camera matrix is the 3 x 4 P = K [R | t].
+    """
+    return {
+        "frame": record["frame"],
+        "theta": record["theta_radians"],
+        "input": {"h": record["inputs"]["h"], "v": record["inputs"]["v"]},
+        "eye_rotation_L": record["world_eye_rotations_euler_xyz_degrees"]["L"],
+        "eye_rotation_R": record["world_eye_rotations_euler_xyz_degrees"]["R"],
+        "pupil_center_2D_L": record["pupil_center_2D"]["L"],
+        "pupil_center_2D_R": record["pupil_center_2D"]["R"],
+        "camera_matrix": record["camera_matrix"],
+    }
 
 
 def create_contact_sheet(frames: list[Path], labels: list[str]) -> Path:
@@ -114,7 +134,8 @@ def generate() -> Path:
     contact = create_contact_sheet(paths, labels)
     MANIFEST.write_text(json.dumps({"formula": "theta=2*pi*k/10; h=sin(theta); v=cos(theta)", "frames": records,
                                     "contact_sheet": contact.relative_to(ROOT).as_posix()}, indent=2), encoding="utf-8")
-    print(f"SEQUENCE_OK frames={FRAME_COUNT} manifest={MANIFEST} contact_sheet={contact}", flush=True)
+    OFFICIAL_METADATA.write_text(json.dumps([official_record(record) for record in records], indent=2), encoding="utf-8")
+    print(f"SEQUENCE_OK frames={FRAME_COUNT} metadata={OFFICIAL_METADATA} manifest={MANIFEST} contact_sheet={contact}", flush=True)
 
     from test_official_sequence import verify
     verify(generated_after=started)

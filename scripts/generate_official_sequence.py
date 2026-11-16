@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from math import pi, sin, cos
 from pathlib import Path
+import hashlib
 import json
 import subprocess
 import sys
@@ -26,6 +27,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
+from metadata.metadata_generator import write_metadata
 from wrapper.blender_runner import blender_executable
 from wrapper.eyes import Eyes
 from wrapper.renderer import png_size
@@ -53,24 +55,6 @@ def remove_previous_outputs() -> None:
     stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), MANIFEST, OFFICIAL_METADATA, CONTACT_SHEET]
     for path in stale:
         path.unlink(missing_ok=True)
-
-
-def official_record(record: dict) -> dict:
-    """One render in the official ``metadata.json`` layout, with exactly its eight keys.
-
-    Rotations are world-frame XYZ Euler angles in degrees; pupil centres are
-    pixels (origin top-left, y down); the camera matrix is the 3 x 4 P = K [R | t].
-    """
-    return {
-        "frame": record["frame"],
-        "theta": record["theta_radians"],
-        "input": {"h": record["inputs"]["h"], "v": record["inputs"]["v"]},
-        "eye_rotation_L": record["world_eye_rotations_euler_xyz_degrees"]["L"],
-        "eye_rotation_R": record["world_eye_rotations_euler_xyz_degrees"]["R"],
-        "pupil_center_2D_L": record["pupil_center_2D"]["L"],
-        "pupil_center_2D_R": record["pupil_center_2D"]["R"],
-        "camera_matrix": record["camera_matrix"],
-    }
 
 
 def create_contact_sheet(frames: list[Path], labels: list[str]) -> Path:
@@ -115,11 +99,13 @@ def generate() -> Path:
             "theta_radians": theta,
             "inputs": {"h": h, "v": v},
             "image": path.relative_to(ROOT).as_posix(),
+            "image_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),  # ties the record to this exact file
             # Everything below was measured by Blender in the process that rendered this image.
             "world_eye_rotations_quaternion": render["world_eye_rotations_quaternion"],
             "world_eye_rotations_euler_xyz_degrees": render["eye_rotation_euler_xyz_degrees"],
             "world_eye_rotations_euler_xyz_radians": render["eye_rotation_euler_xyz_radians"],
             "pupil_center_2D": render["pupil_center_2D"],
+            "eye_center_world_m": render["eye_center_world_m"],
             "pupil_center_world_m": render["pupil_center_world_m"],
             "camera_calibration": render["camera_calibration"],
             "camera_matrix": render["camera_matrix"],
@@ -128,15 +114,15 @@ def generate() -> Path:
         }
         if movement["pupil_center_2D"] != render["pupil_center_2D"]:
             raise RuntimeError(f"Frame {frame:02d}: the rendered pose differs from the pose set by move()")
-        (METADATA / f"frame_{frame:02d}.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+        (METADATA / f"frame_{frame:02d}.json").write_text(json.dumps(record, indent=2, allow_nan=False), encoding="utf-8")
         records.append(record)
         paths.append(path)
         labels.append(f"{frame:02d}  {direction} | h = {h:+.3f}   v = {v:+.3f}")
         print(f"FRAME_OK {frame:02d} {direction} h={h:.17g} v={v:.17g} path={path}", flush=True)
     contact = create_contact_sheet(paths, labels)
     MANIFEST.write_text(json.dumps({"formula": "theta=2*pi*k/10; h=sin(theta); v=cos(theta)", "frames": records,
-                                    "contact_sheet": contact.relative_to(ROOT).as_posix()}, indent=2), encoding="utf-8")
-    OFFICIAL_METADATA.write_text(json.dumps([official_record(record) for record in records], indent=2), encoding="utf-8")
+                                    "contact_sheet": contact.relative_to(ROOT).as_posix()}, indent=2, allow_nan=False), encoding="utf-8")
+    write_metadata(records, OFFICIAL_METADATA)
     print(f"SEQUENCE_OK frames={FRAME_COUNT} metadata={OFFICIAL_METADATA} manifest={MANIFEST} contact_sheet={contact}", flush=True)
 
     from test_official_sequence import verify

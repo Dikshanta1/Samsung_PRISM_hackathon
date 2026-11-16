@@ -79,6 +79,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     result.update(state(h, v))
     result["eye_rotation_euler_xyz_degrees"] = eye_rotations_degrees()
     result["eye_rotation_euler_xyz_radians"] = eye_rotations_radians()
+    result["eye_center_world_m"] = {side: list(bpy.data.objects[f"Eye_{side}"].matrix_world.translation)
+                                    for side in ("L", "R")}
     result["pupil_center_world_m"] = {side: list(pupil_centre_world(side)) for side in ("L", "R")}
     result["pupil_center_2D"] = pupil_centres_px(scene)
     result["camera_matrix"] = projection_matrix(scene)

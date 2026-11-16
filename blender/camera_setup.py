@@ -48,11 +48,6 @@ CLIP_END_M = 10.0
 # Blender camera axes (+Y up, -Z forward) to computer-vision axes (+Y down, +Z forward).
 BLENDER_TO_CV = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, -1.0)))
 
-# The pupil mesh is a unit sphere scaled into a lens; its local -Y pole is the
-# front apex, i.e. the centre of the pupil disc as the camera sees it. The mesh
-# origin lies a few millimetres behind that surface and would under-report shifts.
-PUPIL_FRONT_LOCAL = Vector((0.0, -1.0, 0.0))
-
 DISTANCE_TOLERANCE_M = 1e-6
 AIM_TOLERANCE_DEGREES = 1e-3
 
@@ -295,9 +290,32 @@ def project_point(scene: bpy.types.Scene, point: Vector, camera: bpy.types.Objec
     return u / w, v / w, w
 
 
+def pupil_centre_local(pupil: bpy.types.Object) -> Vector:
+    """Centre of the pupil aperture in the pupil object's own coordinates.
+
+    The pupil mesh is an open cap lying on the eyeball; its open edge is the
+    circular pupil margin the camera sees. The landmark is the mean of the
+    vertices on that boundary (edges used by exactly one face), read from the
+    mesh, so it follows the geometry if the pupil is rebuilt.
+    """
+    mesh = pupil.data
+    uses: dict[tuple[int, int], int] = {}
+    for polygon in mesh.polygons:
+        for key in polygon.edge_keys:
+            uses[key] = uses.get(key, 0) + 1
+    rim = sorted({index for key, count in uses.items() if count == 1 for index in key})
+    if len(rim) < 3:
+        raise CameraConfigurationError(f"{pupil.name} has no open margin to define the pupil centre")
+    centre = Vector((0.0, 0.0, 0.0))
+    for index in rim:
+        centre += mesh.vertices[index].co
+    return centre / len(rim)
+
+
 def pupil_centre_world(side: str) -> Vector:
-    """World position of the centre of the visible pupil disc (its front apex)."""
-    return bpy.data.objects[f"Pupil_{side}"].matrix_world @ PUPIL_FRONT_LOCAL
+    """World position of the centre of the posed pupil's aperture."""
+    pupil = bpy.data.objects[f"Pupil_{side}"]
+    return pupil.matrix_world @ pupil_centre_local(pupil)
 
 
 def pupil_centres_px(scene: bpy.types.Scene) -> dict[str, list[float]]:

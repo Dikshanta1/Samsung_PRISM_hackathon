@@ -104,7 +104,7 @@ The focal lengths and principal point in `K` are also checked directly against t
 
 ### 2D pupil centres
 
-`pupil_centres_px()` projects the front apex of each pupil mesh, which is the centre of the pupil disc the camera sees. In the five test renders the pupil centre measured from the pixels is within 0.7 px of this prediction. (The pupil mesh's origin lies about 3.5 mm behind the visible surface; projecting that instead under-reports shifts by 1 to 2 px.)
+`pupil_centres_px()` projects the centre of each pupil's aperture: the mean of the vertices on the open margin of the pupil cap mesh, read from the mesh. In the five test renders the pupil centre measured from the pixels is within 0.7 px of this prediction. 
 
 ## Lighting
 

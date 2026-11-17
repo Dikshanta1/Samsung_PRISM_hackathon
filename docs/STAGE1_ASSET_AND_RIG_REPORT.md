@@ -16,12 +16,12 @@ References: [official MPFB extension](https://extensions.blender.org/add-ons/mpf
 
 | Side | Object / bone | World centre (m) | Bone tail (m) |
 | --- | --- | --- | --- |
-| Left | `Eye_L` / `EyeBone_L` | `(-0.066, -0.133, 0.055)` | `(-0.066, -0.133, 0.100)` |
-| Right | `Eye_R` / `EyeBone_R` | `(0.066, -0.133, 0.055)` | `(0.066, -0.133, 0.100)` |
+| Left (subject's left, image-right) | `Eye_L` / `EyeBone_L` | `(0.066, -0.133, 0.055)` | `(0.066, -0.133, 0.100)` |
+| Right (subject's right, image-left) | `Eye_R` / `EyeBone_R` | `(-0.066, -0.133, 0.055)` | `(-0.066, -0.133, 0.100)` |
 
 Each bone head equals its eye sphere origin. Eye rotations are applied to the pose bones; the eye sphere, iris, and pupil therefore rotate about the physical eye centre with no flat 2D translation.
 
-The bones point along world +Z, so bone-local X is the pitch axis, bone-local Y (world Z) is the yaw axis, and bone-local Z is the line of sight (never rotated — that would only twist the eye). `set_eye_rotation(rig, side, pitch, yaw)` uses `pitch > 0` = look up and `yaw > 0` = look toward world +X (image-right). Note that `Eye_L` sits at world −X, which is image-left and the subject's anatomical right eye. `tests/test_eye_rig.py` projects each pupil through the camera and asserts Up, Down, Left, Right and Reset for both eyes independently.
+The bones point along world +Z, so bone-local X is the pitch axis, bone-local Y (world Z) is the yaw axis, and bone-local Z is the line of sight (never rotated — that would only twist the eye). `set_eye_rotation(rig, side, pitch, yaw)` uses `pitch > 0` = look up and `yaw > 0` = look toward world +X (image-right). `Eye_L` is the subject's own left eye at world +X (image-right) and `Eye_R` is at world −X (image-left), following the Blender / MakeHuman rig convention. `tests/test_eye_rig.py` projects each pupil through the camera and asserts Up, Down, Left, Right and Reset for both eyes independently.
 
 ## Fixed target, camera, renders, and commands
 

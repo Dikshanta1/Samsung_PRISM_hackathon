@@ -43,7 +43,7 @@ The camera's location, rotation and scale channels are locked, and it has no par
 
 **Camera coordinates** (computer-vision style): `+X` right, `+Y` down, `+Z` forward along the optical axis. A world point maps as `x_cam = R · x_world + t`, then `[u, v, 1]ᵀ ∼ K · x_cam`. Blender's own camera frame is `+Y` up, `−Z` forward; the two differ by `diag(1, −1, −1)`.
 
-Image-right is world `+X`, which is the subject's left. `Eye_L` is at world `−X`, so it appears on the left of the image and is the subject's anatomical right eye.
+Image-right is world `+X`, which is the subject's left. `Eye_L` is the subject's own left eye, at world `+X`, so it appears on the right of the image; `Eye_R` is at world `−X`, on the left of the image. This follows the Blender / MakeHuman rig convention.
 
 ## Calibration
 
@@ -85,8 +85,8 @@ Projected with `P` and checked against hand-computed pinhole values (`u = 512 + 
 | --- | --- | --- | --- |
 | Eye midpoint | 512.000 | 512.000 | 0.400 |
 | Neutral fixation target | 512.000 | 512.000 | 0.050 |
-| `Eye_L` centre | 324.267 | 512.000 | 0.400 |
-| `Eye_R` centre | 699.733 | 512.000 | 0.400 |
+| `Eye_L` centre | 699.733 | 512.000 | 0.400 |
+| `Eye_R` centre | 324.267 | 512.000 | 0.400 |
 | 5 cm right of midpoint | 654.222 | 512.000 | 0.400 |
 | 5 cm above midpoint | 512.000 | 369.778 | 0.400 |
 | 3 cm left, 2 cm below, 10 cm nearer | 398.222 | 587.852 | 0.300 |
@@ -156,8 +156,8 @@ Measured pupil shifts relative to the centre render, in pixels `(Δu, Δv)`:
 
 | Pose | Input `(h, v)` | `Eye_L` | `Eye_R` |
 | --- | --- | --- | --- |
-| Left | `(-1, 0)` | `(-16.0, 0.0)` | `(-15.5, 0.0)` |
-| Right | `(+1, 0)` | `(+15.5, 0.0)` | `(+16.0, 0.0)` |
+| Left | `(-1, 0)` | `(-15.5, 0.0)` | `(-16.0, 0.0)` |
+| Right | `(+1, 0)` | `(+16.0, 0.0)` | `(+15.5, 0.0)` |
 | Up | `(0, +1)` | `(0.0, -16.0)` | `(0.0, -16.0)` |
 | Down | `(0, -1)` | `(0.0, +16.0)` | `(0.0, +16.0)` |
 

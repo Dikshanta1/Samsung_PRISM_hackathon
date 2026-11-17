@@ -8,9 +8,13 @@ from mathutils import Matrix, Vector
 import bpy
 
 
+# The face looks along world -Y, so the subject's own left is world +X. "L" and
+# "R" follow the Blender / MakeHuman rig convention: they are the subject's
+# anatomical left and right eyes. Seen from the camera, Eye_L is therefore on
+# the right of the image and Eye_R on the left.
 EYE_CENTERS = {
-    "L": Vector((-0.066, -0.133, 0.055)),
-    "R": Vector((0.066, -0.133, 0.055)),
+    "L": Vector((0.066, -0.133, 0.055)),
+    "R": Vector((-0.066, -0.133, 0.055)),
 }
 
 

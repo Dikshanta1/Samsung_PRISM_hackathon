@@ -42,7 +42,7 @@ A JSON array with one record per render, in frame order, each with exactly these
 | `pupil_center_2D_L`, `pupil_center_2D_R` | `[x, y]` in pixels: origin at the top-left corner, `x` right, `y` down |
 | `camera_matrix` | 3 × 4 projection matrix `P = K [R | t]`, world metres to pixels; identical in every record |
 
-World axes are `+X` image-right, `+Z` up, and the face looks along `−Y`. A gaze to image-right is therefore a positive `rz`, and a gaze upward a negative `rx` (the eye looks along its local `−Y`). `L` is `Eye_L`, on the left of the image (the subject's anatomical right eye). The same values, with more detail, are in `metadata/official_sequence.json`.
+World axes are `+X` image-right, `+Z` up, and the face looks along `−Y`. A gaze to image-right is therefore a positive `rz`, and a gaze upward a negative `rx` (the eye looks along its local `−Y`). `L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / MakeHuman rig convention. The same values, with more detail, are in `metadata/official_sequence.json`.
 
 ## Acceptance check
 
@@ -59,6 +59,6 @@ Verifies the generated files (the generator runs the same check on its own outpu
 - measured in those pixels, each pupil is displaced at least 10 px at clock angle `36k°` (within 8°), which also fixes the order as clockwise from the top;
 - the camera matrix and calibration are identical in every frame, the camera is 0.400 m from the eye midpoint, and the forehead region is pixel-identical across frames.
 
-Measured in the latest run, `Eye_L` pupil clock angle and displacement per frame: 360°, 36°, 72°, 109°, 144°, 180°, 215°, 252°, 288°, 325°, each 15.3 to 16.1 px.
+Measured in the latest run, `Eye_L` pupil clock angle and displacement per frame: 1°, 35°, 71°, 108°, 145°, 179°, 216°, 252°, 287°, 323°, each 15.6 to 16.1 px.
 
 The frames, metadata and contact sheet are generated artifacts and are ignored by git; rerun the command to recreate them.

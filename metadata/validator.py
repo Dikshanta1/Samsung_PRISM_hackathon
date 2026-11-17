@@ -389,8 +389,9 @@ def validate(metadata_path: Path = METADATA_PATH, *, provenance_path: Path = PRO
                     if pixel_error > PIXEL_TOLERANCE_PX:
                         errors.append(f"{where}: pupil_center_2D_{side} is {pixel_error:.2f} px from the pupil in {image.name}")
             entry[side] = side_entry
-        if record["pupil_center_2D_L"][0] >= record["pupil_center_2D_R"][0]:
-            errors.append(f"{where}: pupil L is not left of pupil R in the image")
+        # L and R are the subject's own left and right, so the camera sees L on the image-right.
+        if record["pupil_center_2D_L"][0] <= record["pupil_center_2D_R"][0]:
+            errors.append(f"{where}: pupil L (subject's left) is not right of pupil R in the image")
 
     sides = [entry[side] for entry in frames_report for side in ("L", "R") if side in entry]
     pixel_errors = [side["rendered_pixel_error_px"] for side in sides if "rendered_pixel_error_px" in side]

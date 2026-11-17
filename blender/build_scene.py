@@ -88,7 +88,7 @@ def create_head(skin: bpy.types.Material, socket: bpy.types.Material, lip: bpy.t
     for side, centre in EYE_CENTERS.items():
         add_torus(f"SocketRim_{side}", centre + Vector((0, 0.009, 0)), 0.0435, 0.0068, socket)
         brow = add_uv(f"Brow_{side}", (centre.x, -0.145, 0.108), (0.058, 0.012, 0.012), dark)
-        brow.rotation_euler.y = radians(-8 if side == "L" else 8)
+        brow.rotation_euler.y = radians(8 if side == "L" else -8)
 
 
 def render(path: Path) -> None:

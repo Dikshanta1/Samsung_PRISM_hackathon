@@ -97,7 +97,8 @@ def verify(generated_after: float | None = None) -> None:
         # The pupil in the rendered pixels is where the metadata says it is.
         found = {}
         for side in ("L", "R"):
-            eye_centre = (512.0 + (-1 if side == "L" else 1) * 187.7, 512.0)
+            # L is the subject's own left eye, which the camera sees on the image-right.
+            eye_centre = (512.0 + (1 if side == "L" else -1) * 187.7, 512.0)
             found[side] = pupil_in_pixels(rows, eye_centre)
             reported = record["pupil_center_2D"][side]
             error = max(abs(found[side][0] - reported[0]), abs(found[side][1] - reported[1]))

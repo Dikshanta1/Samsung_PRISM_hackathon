@@ -63,3 +63,20 @@ python3 tests/test_renderer.py
 ```
 
 See `docs/CAMERA_CALIBRATION.md` for the reference point, intrinsic matrix, rotation, translation, projection matrix and image coordinate convention.
+
+## Official sequence and metadata
+
+```bash
+python3 scripts/generate_official_sequence.py
+```
+
+Renders `renders/frame_00.png` to `frame_09.png`, and writes `metadata.json`, `outputs/contact_sheet.png` and, with `python3 tests/test_metadata.py`, `outputs/validation_report.json`.
+
+Conventions used in `metadata.json`:
+
+- `eye_rotation_L` / `eye_rotation_R`: world-frame Euler angles `[rx, ry, rz]` in XYZ order (`R = Rz · Ry · Rx`), in **degrees**. World `+X` is image-right, `+Z` is up, and the face looks along `−Y`.
+- `L` is the subject's own left eye (`Eye_L`, world `+X`), which appears on the right of the image; `R` appears on the left.
+- `pupil_center_2D_L` / `pupil_center_2D_R`: pixels, origin at the top-left corner, `x` right, `y` down.
+- `camera_matrix`: 3 × 4 projection matrix `P = K [R | t]`, world metres to pixels.
+
+Details: `docs/OFFICIAL_SEQUENCE.md`, `docs/METADATA.md`, `docs/WRAPPER_API.md`.

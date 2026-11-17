@@ -60,7 +60,7 @@ Returns what Blender measured:
 | `camera_fixed`, `lighting_constant` | `true`; the command fails otherwise |
 | `scene`, `blender_version` | The file Blender loaded and the Blender version |
 
-`L` is `Eye_L`, on the left of the image (the subject's anatomical right eye).
+`L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / MakeHuman rig convention.
 
 ### `reset() -> dict`
 

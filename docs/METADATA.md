@@ -17,10 +17,10 @@ A JSON array of ten records, one per render, in frame order. Record `k` describe
   "frame": 3,
   "theta": 1.8849555921538759,
   "input": { "h": 0.9510565162951536, "v": -0.30901699437494734 },
-  "eye_rotation_L": [2.4045, 0.0, 17.9750],
-  "eye_rotation_R": [2.5242, 0.0, -3.0171],
-  "pupil_center_2D_L": [341.674, 516.820],
-  "pupil_center_2D_R": [712.666, 517.084],
+  "eye_rotation_L": [2.5242, 0.0, -3.0171],
+  "eye_rotation_R": [2.4045, 0.0, 17.9750],
+  "pupil_center_2D_L": [712.666, 517.084],
+  "pupil_center_2D_R": [341.674, 516.820],
   "camera_matrix": [[1137.778, 512.0, 0.0, 272.896], [0.0, 512.0, -1137.778, 335.474], [0.0, 1.0, 0.0, 0.533]]
 }
 ```
@@ -43,7 +43,7 @@ All of these are read in the Blender process that renders the frame (`scripts/bl
 - **World axes:** `+X` is image-right, `+Z` is up, the face looks along `−Y`. Lengths are metres.
 - **Euler order:** XYZ, world frame, i.e. `R = Rz · Ry · Rx` (rotate about world X, then Y, then Z). Degrees.
 - **Reading the angles:** an eye's line of sight is its local `−Y`. `rz > 0` turns the gaze to image-right; `rx < 0` turns it up; `ry` is roll about the line of sight and is always 0 (to float rounding).
-- **Eyes:** `L` is `Eye_L`, on the left of the image (the subject's anatomical right eye).
+- **Eyes:** `L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / MakeHuman rig convention.
 - **Pixels:** origin at the top-left corner, `x` right, `y` down; the image centre is `(512, 512)`.
 - **3D pupil centre:** the centre of the pupil aperture: the mean of the vertices on the open margin of the `Pupil_L` / `Pupil_R` cap mesh, read from the mesh and transformed to world space. It lies 37 mm in front of the eyeball centre, so it moves when the eye rotates; the eyeball centre does not.
 
@@ -62,7 +62,7 @@ All of these are read in the Blender process that renders the frame (`scripts/bl
 | Schema | Ten records; exactly the eight fields; correct shapes; finite numbers only (NaN and Infinity tokens are refused when parsing) |
 | Sequence | `frame = k`; `theta`, `h`, `v` equal the formula to 1e-12 |
 | Rotations | Angles within ±180°; no roll; the gaze rebuilt from the Euler angles passes through the measured 3D pupil centre and hits the fixation target for `(h, v)`, each to 0.01° |
-| Pupils | Inside the image; equal to the 3D pupil centre projected with the record's own camera matrix (0.01 px); `L` left of `R`; within 1.5 px of the dark pupil located in the frame's decoded pixels |
+| Pupils | Inside the image; equal to the 3D pupil centre projected with the record's own camera matrix (0.01 px); `L` to the image-right of `R`; within 1.5 px of the dark pupil located in the frame's decoded pixels |
 | Camera | `P = K [R | t]`; `fx = fy = lens · width / sensor width`; principal point at the image centre; `R` a rotation; camera 0.400 m from the eye midpoint, which projects to the image centre; identical in every frame |
 | Image | `renders/frame_0k.png` exists, is a valid 1024 × 1024 8-bit RGB PNG, and has the SHA-256 recorded when the frame was measured |
 

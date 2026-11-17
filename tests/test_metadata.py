@@ -136,7 +136,7 @@ def main() -> None:
             ("pupil shifted three pixels", "projected 3d pupil centre", tampered(lambda r: r[4]["pupil_center_2D_L"].__setitem__(0, r[4]["pupil_center_2D_L"][0] + 3.0))),
             ("eyeball centres instead of pupils", "projected 3d pupil centre", tampered(eyeball_instead_of_pupil)),
             ("pupil outside image", "outside the image", tampered(lambda r: r[4].__setitem__("pupil_center_2D_R", [1500.0, 512.0]))),
-            ("left and right swapped", "not left of", tampered(swap_eyes)),
+            ("left and right swapped", "not right of", tampered(swap_eyes)),
             ("camera moved in one frame", "camera must be fixed", tampered(lambda r: r[8]["camera_matrix"][2].__setitem__(3, 0.6))),
             ("camera matrix altered in every frame", "differs from k [r | t]", tampered(scale_camera)),
             ("camera matrix 3 x 3", "camera_matrix must be 3 x 4", tampered(lambda r: [row.pop() for row in r[0]["camera_matrix"]])),

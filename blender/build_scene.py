@@ -139,7 +139,7 @@ def build(render_dir: Path) -> None:
     render(render_dir / "stage1_right_eye_rotation.png")
     # Save the scene in the calibrated, converged neutral pose.
     reset_fixation()
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "blender" / "scene.blend"))
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / "scene.blend"))
     print("SCENE_BUILD_OK")
 
 

@@ -2,7 +2,7 @@
 
 This file must be run by Blender, never ordinary CPython:
 
-    Blender --background --factory-startup blender/scene.blend --python-exit-code 1 \
+    Blender --background --factory-startup scene.blend --python-exit-code 1 \
         --python scripts/blender_worker.py -- move --h=1 --v=0
     ... -- reset
     ... -- render --h=1 --v=0 --output /absolute/path/frame.png

@@ -3,7 +3,7 @@
     from wrapper.renderer import render
     path = render("renders/frame.png")
 
-``render`` starts Blender in background mode on ``blender/scene.blend``, renders
+``render`` starts Blender in background mode on ``scene.blend``, renders
 whatever eye pose is saved there through the locked camera, and returns the
 path of the PNG. The scene file is opened read-only: nothing is saved, so the
 camera and lighting cannot be altered by rendering. Every failure is raised as
@@ -29,7 +29,7 @@ except ImportError:  # executed as a plain script rather than as a package modul
     from blender_runner import blender_executable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCENE = PROJECT_ROOT / "blender" / "scene.blend"
+DEFAULT_SCENE = PROJECT_ROOT / "scene.blend"
 RENDER_SCRIPT = PROJECT_ROOT / "blender" / "render_frame.py"
 WORKER_SCRIPT = PROJECT_ROOT / "scripts" / "blender_worker.py"
 EXPECTED_SIZE = (1024, 1024)

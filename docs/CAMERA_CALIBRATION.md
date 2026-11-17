@@ -1,6 +1,6 @@
 # Camera Calibration and Rendering (Stage 3)
 
-All lengths are metres. Every number below is derived by `blender/camera_setup.py` from the camera that is actually in `blender/scene.blend`; `tests/test_camera.py` writes the full-precision values to `metadata/camera_calibration.json`.
+All lengths are metres. Every number below is derived by `blender/camera_setup.py` from the camera that is actually in `scene.blend`; `tests/test_camera.py` writes the full-precision values to `metadata/camera_calibration.json`.
 
 ## Reference point and distances
 
@@ -124,9 +124,9 @@ from wrapper.renderer import render
 path = render("renders/frame.png")      # returns a pathlib.Path
 ```
 
-or `python3 -m wrapper.renderer renders/frame.png`, or `EyeController().render(path)` after `move`/`reset`.
+or `python3 -m wrapper.renderer renders/frame.png`. To render a chosen pose, use `wrapper.eyes.Eyes` (`docs/WRAPPER_API.md`).
 
-`render(output_path)` starts Blender in background mode on `blender/scene.blend`, renders the eye pose saved there and returns the absolute path of the PNG. It never saves the scene file, so rendering cannot move the camera or change the lighting. It raises `RenderError` with the reason and the tail of Blender's output when:
+`render(output_path)` starts Blender in background mode on `scene.blend`, renders the eye pose saved there and returns the absolute path of the PNG. It never saves the scene file, so rendering cannot move the camera or change the lighting. It raises `RenderError` with the reason and the tail of Blender's output when:
 
 - the output path does not end in `.png`, or cannot be written;
 - the scene file or the Blender executable is missing;
@@ -138,7 +138,7 @@ An existing file at the output path is deleted before rendering, so a stale imag
 ## Tests
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup blender/scene.blend --python-exit-code 1 --python tests/test_camera.py
+/Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup scene.blend --python-exit-code 1 --python tests/test_camera.py
 ```
 
 ```bash

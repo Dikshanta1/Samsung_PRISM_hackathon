@@ -21,11 +21,10 @@ Eye centres are read from the rig (`rig.matrix_world @ bone.head_local`), not fr
 The camera sits 0.400 m forward of the eye midpoint with its optical axis through that midpoint, so the midpoint projects to pixel (512, 512).
 
 ```python
-from wrapper.eye_controller import EyeController
-eyes = EyeController()
+from wrapper.eyes import Eyes
+eyes = Eyes()
 eyes.move(-1.0, 0.0)
 eyes.reset()
 ```
 
-The wrapper returns Blender-measured target coordinates, eye quaternions, and angular errors.
-It persists `move`/`reset` to `blender/scene.blend`; the acceptance test itself leaves the tracked scene in reset pose.
+The wrapper returns Blender-measured target coordinates, eye rotations, and angular errors. It never saves `scene.blend`; see `docs/WRAPPER_API.md`.

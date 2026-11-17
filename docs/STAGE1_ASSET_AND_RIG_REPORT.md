@@ -29,8 +29,8 @@ The bones point along world +Z, so bone-local X is the pitch axis, bone-local Y 
 
 ```bash
 /Applications/Blender.app/Contents/MacOS/Blender --background --python blender/build_scene.py -- "$PWD/renders"
-/Applications/Blender.app/Contents/MacOS/Blender --background blender/scene.blend --python tests/test_eye_rig.py
+/Applications/Blender.app/Contents/MacOS/Blender --background scene.blend --python tests/test_eye_rig.py
 python3 tests/verify_png.py renders/stage1_front.png
 ```
 
-The build writes `renders/stage1_front.png`, `renders/stage1_left_eye_rotation.png`, and `renders/stage1_right_eye_rotation.png` and saves `blender/scene.blend` in neutral pose.
+The build writes `renders/stage1_front.png`, `renders/stage1_left_eye_rotation.png`, and `renders/stage1_right_eye_rotation.png` and saves `scene.blend` in neutral pose.

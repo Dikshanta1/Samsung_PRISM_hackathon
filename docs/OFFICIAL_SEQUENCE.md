@@ -21,7 +21,7 @@ Clockwise is as seen in the image: `h = +1` is image-right and `v = +1` is up.
 ## What one run does
 
 1. Deletes any earlier `renders/frame_*.png`, `metadata/frame_*.json`, `metadata/official_sequence.json`, `metadata.json` and `outputs/contact_sheet.png`, so no previous image can be reused.
-2. For each `k`, calls `Eyes.move(h, v)` and `Eyes.render()` on the real `blender/scene.blend` and writes `renders/frame_00.png` to `renders/frame_09.png` (1024 × 1024, 8-bit RGB).
+2. For each `k`, calls `Eyes.move(h, v)` and `Eyes.render()` on the real `scene.blend` and writes `renders/frame_00.png` to `renders/frame_09.png` (1024 × 1024, 8-bit RGB).
 3. Writes `metadata/frame_00.json` to `frame_09.json` and the combined `metadata/official_sequence.json`. Every value is either computed from the formula or reported by the Blender process that rendered the frame: `frame`, `direction`, `theta_radians`, `inputs` (`h`, `v` at full double precision), `image`, world-frame eye rotations (quaternion and XYZ Euler degrees), `pupil_center_2D`, `camera_matrix`, the full `camera_calibration`, `angular_error_degrees` and `convergence`.
 4. Writes the official `metadata.json` at the project root (see below).
 5. Builds `outputs/contact_sheet.png` (3430 × 1728): the ten frames in order, five per row, each labelled with its frame number, direction, `h` and `v`.

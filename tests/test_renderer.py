@@ -2,7 +2,7 @@
 
     python3 tests/test_renderer.py
 
-Renders the eye pose saved in ``blender/scene.blend`` through the public
+Renders the eye pose saved in ``scene.blend`` through the public
 wrapper, checks the PNG, checks that the scene file is untouched, and checks
 that each kind of failure is reported as ``RenderError`` with a clear reason.
 """
@@ -60,7 +60,7 @@ def main() -> None:
     assert details["resolution_px"] == [1024, 1024]
     assert set(details["pupil_center_2D"]) == {"L", "R"}
     assert digest(second_path) == first, "Two renders of the same pose differ"
-    assert digest(DEFAULT_SCENE) == scene_before, "Rendering modified blender/scene.blend"
+    assert digest(DEFAULT_SCENE) == scene_before, "Rendering modified scene.blend"
     print(f"RENDER_OK path={returned} size=1024x1024 repeatable=true scene_untouched=true")
 
     expect_error("non-PNG output", ".png", lambda: render(ROOT / "renders" / "frame.jpg"))
@@ -79,7 +79,7 @@ def main() -> None:
     # The timeout case removes the stale output before starting; restore a good image.
     render(output)
     assert digest(output) == first
-    assert digest(DEFAULT_SCENE) == scene_before, "A failed render modified blender/scene.blend"
+    assert digest(DEFAULT_SCENE) == scene_before, "A failed render modified scene.blend"
     print("RENDERER_TEST_OK")
 
 

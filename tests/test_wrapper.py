@@ -2,7 +2,7 @@
 
     python3 tests/test_wrapper.py
 
-Runs under system Python (no ``bpy``) against the real ``blender/scene.blend``;
+Runs under system Python (no ``bpy``) against the real ``scene.blend``;
 nothing is mocked. It checks that Blender launches and loads that scene, that
 inputs are validated, that movement and reset are real and do not accumulate,
 that renders are valid PNGs in which the pupils actually move, that output
@@ -260,7 +260,7 @@ def main() -> None:
         assert not (base / "x.png").exists(), "An image was written for the wrong scene"
 
     # The scene file, and with it the camera calibration and lighting, was never written.
-    assert digest(DEFAULT_SCENE) == scene_before, "The wrapper modified blender/scene.blend"
+    assert digest(DEFAULT_SCENE) == scene_before, "The wrapper modified scene.blend"
     assert (backup.stat().st_mtime_ns if backup.exists() else None) == backup_before, "The wrapper saved the scene"
     assert "bpy" not in sys.modules
     print("WRAPPER_TEST_OK blender=true scene=real movement=true reset=true render=true scene_untouched=true")

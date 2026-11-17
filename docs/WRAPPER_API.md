@@ -18,7 +18,7 @@ Run it from the project root, or put the project root on `PYTHONPATH`.
 `bpy` only works inside Blender's own Python, so every call starts Blender in background mode:
 
 ```text
-Blender --background --factory-startup blender/scene.blend --python-exit-code 1 \
+Blender --background --factory-startup scene.blend --python-exit-code 1 \
     --python scripts/blender_worker.py -- <move|reset|render> --h=H --v=V [--output FILE.png]
 ```
 
@@ -26,7 +26,7 @@ Blender --background --factory-startup blender/scene.blend --python-exit-code 1 
 
 Blender is located through the `BLENDER_BIN` environment variable, then `blender` on `PATH`, then `/Applications/Blender.app/Contents/MacOS/Blender`.
 
-**The scene file is never saved.** The current `(h, v)` is held by the `Eyes` object and sent with every command as an absolute pose. `blender/scene.blend` therefore always contains the neutral pose, the locked camera and the constant lighting, and cannot be damaged by an interrupted run. Consequences:
+**The scene file is never saved.** The current `(h, v)` is held by the `Eyes` object and sent with every command as an absolute pose. `scene.blend` therefore always contains the neutral pose, the locked camera and the constant lighting, and cannot be damaged by an interrupted run. Consequences:
 
 - Movements cannot accumulate: the pose depends only on the last `move` or `reset`.
 - A new `Eyes()` object starts at neutral `(0, 0)`. The pose does not carry over between Python processes.
@@ -38,7 +38,7 @@ Blender is located through the `BLENDER_BIN` environment variable, then `blender
 | Argument | Meaning |
 | --- | --- |
 | `output_dir` | Directory for rendered images. Default `outputs/` in the project. Created when needed. |
-| `scene` | Another `.blend` file to control. Default `blender/scene.blend`. Raises `FileNotFoundError` if missing. |
+| `scene` | Another `.blend` file to control. Default `scene.blend`. Raises `FileNotFoundError` if missing. |
 | `timeout` | Limit in seconds for each Blender run. |
 
 ### `move(h, v) -> dict`
@@ -110,9 +110,9 @@ Each `--pose=H,V` becomes `frame_NNNN.png` in the output directory. `dataset.jso
 python3 tests/test_wrapper.py
 ```
 
-Runs under system Python against the real `blender/scene.blend`, with no mocks, and takes about 45 seconds. It checks that:
+Runs under system Python against the real `scene.blend`, with no mocks, and takes about 45 seconds. It checks that:
 
-- Blender launches and reports loading `blender/scene.blend`;
+- Blender launches and reports loading `scene.blend`;
 - out-of-range and non-numeric inputs are rejected and leave the pose unchanged;
 - left, right, up and down each move both pupils at least 10 px the commanded way, on target to 0.001°;
 - repeating a move, or reaching it by a different route, gives the identical pose, and `reset()` gives the identical neutral pose;
@@ -120,4 +120,4 @@ Runs under system Python against the real `blender/scene.blend`, with no mocks, 
 - the render after `reset()` is byte-identical to the first neutral render and to a render of the saved scene;
 - default, relative and absolute output paths and two separate output directories work;
 - a missing scene, a non-PNG path, a timeout and a wrong `.blend` file are each reported;
-- `blender/scene.blend` is byte-identical afterwards.
+- `scene.blend` is byte-identical afterwards.

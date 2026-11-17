@@ -8,7 +8,7 @@
     eyes.reset()
 
 This module is ordinary Python and never imports ``bpy``. Every call starts
-Blender in background mode on the real ``blender/scene.blend`` and runs
+Blender in background mode on the real ``scene.blend`` and runs
 ``scripts/blender_worker.py`` inside Blender's own Python runtime.
 
 The current pose ``(h, v)`` is held by the ``Eyes`` object and sent to Blender
@@ -28,7 +28,7 @@ from .blender_runner import blender_executable
 from .renderer import RenderError, render_with_details
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCENE = ROOT / "blender" / "scene.blend"
+DEFAULT_SCENE = ROOT / "scene.blend"
 DEFAULT_OUTPUT_DIR = ROOT / "outputs"
 WORKER = ROOT / "scripts" / "blender_worker.py"
 RESULT_PREFIX = "WORKER_RESULT "

@@ -1,6 +1,6 @@
 """Blender background acceptance test for the locked camera, calibration and renders.
 
-    Blender --background --factory-startup blender/scene.blend \
+    Blender --background --factory-startup scene.blend \
         --python-exit-code 1 --python tests/test_camera.py
 
 Nothing is saved to the .blend file. The test writes five renders to

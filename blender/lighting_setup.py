@@ -8,20 +8,34 @@ before and after each render.
 """
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 import bpy
 from mathutils import Vector
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from eye_rig import EYE_MIDPOINT
 
 RENDER_ENGINE = "BLENDER_EEVEE"
 RENDER_SAMPLES = 64
 VIEW_TRANSFORM = "Standard"
 WORLD_COLOR = (0.025, 0.025, 0.025)
 WORLD_STRENGTH = 1.0
-LIGHT_AIM_POINT_M = Vector((0.0, -0.10, 0.04))
+# Lights are placed relative to the eye midpoint so they follow the face, not the world origin.
+LIGHT_AIM_POINT_M = EYE_MIDPOINT + Vector((0.0, 0.0, -0.02))
 
 # name, world location (m), power (W), disk diameter (m), colour
+#
+# Both lights sit about 48 degrees off the camera axis. A light's reflection on
+# the eye (the catchlight) appears about half that angle from the corneal apex,
+# about 7 mm, and a 0.20 m disc makes it about 1.4 mm in radius. With at most
+# 8.1 degrees of gaze (2.5 mm of pupil travel, plus a 2.4 mm pupil radius) the
+# catchlights never fall on the pupil, so the pupil stays fully visible in every
+# allowed direction.
 LIGHTS = (
-    ("KeyLight", Vector((-0.32, -0.62, 0.38)), 5.0, 0.30, (1.0, 1.0, 1.0)),
-    ("FillLight", Vector((0.34, -0.55, 0.12)), 2.0, 0.30, (1.0, 1.0, 1.0)),
+    ("KeyLight", EYE_MIDPOINT + Vector((-0.36, -0.42, 0.30)), 5.0, 0.20, (1.0, 1.0, 1.0)),
+    ("FillLight", EYE_MIDPOINT + Vector((0.40, -0.36, 0.0)), 2.0, 0.20, (1.0, 1.0, 1.0)),
 )
 
 

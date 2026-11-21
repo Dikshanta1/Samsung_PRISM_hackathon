@@ -60,11 +60,13 @@ def _tail(text: str, lines: int = 15) -> str:
 
 def render_with_details(output_path: str | Path, *, scene: str | Path | None = None,
                         timeout: float = DEFAULT_TIMEOUT_S,
-                        pose: tuple[float, float] | None = None) -> tuple[Path, dict[str, object]]:
+                        pose: tuple[float, float] | None = None,
+                        pupil_mask: str | Path | None = None) -> tuple[Path, dict[str, object]]:
     """Render the eye pose and also return Blender's report for the frame.
 
     With ``pose=None`` the pose saved in the scene file is rendered; with
-    ``pose=(h, v)`` that fixation is applied in memory first.
+    ``pose=(h, v)`` that fixation is applied in memory first. ``pupil_mask``
+    (only with a pose) also writes the pupil-mask render to that PNG path.
     """
     output = Path(output_path).expanduser().resolve()
     scene_path = Path(scene).expanduser().resolve() if scene else DEFAULT_SCENE
@@ -85,11 +87,18 @@ def render_with_details(output_path: str | Path, *, scene: str | Path | None = N
 
     command = [str(blender), "--background", "--factory-startup", str(scene_path), "--python-exit-code", "1"]
     if pose is None:
+        if pupil_mask is not None:
+            raise RenderError("A pupil mask needs an explicit pose")
         command += ["--python", str(RENDER_SCRIPT), "--", "--output", str(output)]
         result_prefix, error_prefix = RESULT_PREFIX, ERROR_PREFIX
     else:
         command += ["--python", str(WORKER_SCRIPT), "--", "render", f"--h={float(pose[0])!r}", f"--v={float(pose[1])!r}",
                     "--output", str(output), "--scene", str(scene_path)]
+        if pupil_mask is not None:
+            mask = Path(pupil_mask).expanduser().resolve()
+            if mask.suffix.lower() != ".png":
+                raise RenderError(f"Pupil mask path must end in .png, received {str(pupil_mask)!r}")
+            command += ["--mask", str(mask)]
         result_prefix, error_prefix = WORKER_RESULT_PREFIX, WORKER_ERROR_PREFIX
     try:
         completed = subprocess.run(command, text=True, capture_output=True, timeout=timeout)

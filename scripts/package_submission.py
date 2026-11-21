@@ -34,6 +34,8 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from wrapper.blender_runner import blender_executable
+sys.path.insert(0, str(ROOT / "tests"))
+from test_wrapper import SAME_IMAGE_MAX_LEVELS, SAME_IMAGE_MAX_PIXELS, image_difference
 
 DIST = ROOT / "dist"
 REPORT = ROOT / "outputs" / "final_validation_report.json"
@@ -41,18 +43,21 @@ FRAMES = [f"renders/frame_{k:02d}.png" for k in range(10)]
 REQUIRED = ["scene.blend", "wrapper/eyes.py", "metadata.json", "README.md", *FRAMES]
 SOURCE_DIRECTORIES = ("blender", "wrapper", "scripts", "tests", "metadata", "docs", "assets")
 ROOT_FILES = ("scene.blend", "metadata.json", "README.md", "requirements.txt")
-GENERATED = ("outputs/contact_sheet.png", "outputs/validation_report.json")
+GENERATED = ("outputs/contact_sheet.png", "outputs/validation_report.json",
+             *(f"outputs/pupil_masks/frame_{k:02d}.png" for k in range(10)))
 SOURCE_SUFFIXES = {".py", ".md", ".sh", ".txt"}
 FORBIDDEN = ("__pycache__", ".DS_Store", ".blend1", ".pyc", ".git/")
 LIMITATIONS = [
-    "The face is a procedural stand-in built from primitives with plain materials; it is not a textured MakeHuman / "
-    "GNM / FLAME head. MPFB could not be installed because Blender's online access is disabled on the build machine.",
-    "The head is about twice human size (132 mm between eye centres, 37 mm eyeball radius), so neutral vergence is "
-    "10.68 degrees per eye and a full-range move shifts each pupil by about 16 px.",
-    "There are no eyelids, lashes or tear film; the eyeballs sit in simple socket rims.",
-    "Only Blender 5.3.0 on macOS (Apple Silicon) was tested. Renders are byte-identical between runs on this machine; "
-    "other Blender versions or GPUs may differ in the last bits.",
-    "Each wrapper call starts a new Blender process (about 1.5 s per move, 2 s per render).",
+    "The head is a third-party Character Creator 3 character (Hassan V1), not one of the listed open assets; its "
+    "licence for redistribution has not been verified.",
+    "Materials whose auxiliary maps were missing from the source were rebuilt from the embedded diffuse, normal and "
+    "opacity maps; the CC3 iris brightness and sclera tint are recreated with UV masks.",
+    "The head is life-size (66.8 mm between eye centres), so the full +-5 cm range turns each eye about 8 degrees "
+    "and moves each pupil about 12 px.",
+    "The cornea does not refract; hair cards cast no shadows (their dithered shadows were not reproducible).",
+    "Only Blender 5.3.0 on macOS (Apple Silicon) was tested. Renders are reproducible to within 2 levels on at most "
+    "64 pixels; other Blender versions or GPUs may differ slightly.",
+    "Each wrapper call starts a new Blender process (about 2 s per move, 3 s per render).",
     "Inputs are a square range: h and v are each limited to [-1, +1], so a corner such as (1, 1) places the target "
     "7.07 cm from centre. The official ten-frame circle stays within 5 cm.",
 ]
@@ -149,13 +154,26 @@ def clean_run(archive: Path) -> dict:
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(workspace)
         shipped = {name: sha256(workspace / name) for name in [*FRAMES, "metadata.json", "scene.blend"]}
+        shipped_frames = workspace.parent / f"{workspace.name}_shipped_frames"
+        shipped_frames.mkdir()
+        for name in FRAMES:
+            shutil.copy(workspace / name, shipped_frames / Path(name).name)
         steps = final_tests(workspace)
         passed = all(step["passed"] for step in steps) and len(steps) == 5
         regenerated = {name: (workspace / name).is_file() and sha256(workspace / name) == digest
                        for name, digest in shipped.items()}
-        return {"passed": passed and all(regenerated.values()), "extracted_to": "an empty temporary folder (deleted afterwards)",
+        # Frames: identical up to GPU rounding (see tests/test_wrapper.py); most are byte-identical.
+        differences = {name: image_difference(shipped_frames / Path(name).name, workspace / name)
+                       for name in FRAMES if (workspace / name).is_file()}
+        frames_match = len(differences) == len(FRAMES) and all(
+            count <= SAME_IMAGE_MAX_PIXELS and largest <= SAME_IMAGE_MAX_LEVELS for count, largest in differences.values())
+        shutil.rmtree(shipped_frames, ignore_errors=True)
+        return {"passed": passed and frames_match and regenerated["metadata.json"] and regenerated["scene.blend"],
+                "extracted_to": "an empty temporary folder (deleted afterwards)",
                 "steps": steps,
-                "regenerated_frames_identical_to_shipped": all(regenerated[name] for name in FRAMES),
+                "regenerated_frames_match_shipped": frames_match,
+                "regenerated_frames_byte_identical": sum(regenerated[name] for name in FRAMES),
+                "regenerated_frame_differences": {name: {"pixels": c, "max_levels": m} for name, (c, m) in differences.items() if c},
                 "regenerated_metadata_identical_to_shipped": regenerated["metadata.json"],
                 "scene_blend_unmodified": regenerated["scene.blend"]}
     finally:

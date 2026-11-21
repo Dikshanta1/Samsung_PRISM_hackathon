@@ -8,11 +8,15 @@ that produced the metadata:
 * schema: ten records, exactly the required keys, finite numbers only;
 * sequence: frame = k, theta = 2*pi*k/10, h = sin(theta), v = cos(theta);
 * rotations: the XYZ Euler angles are turned back into a gaze direction, which
-  must pass through the measured 3D pupil centre and hit the fixation target
-  that h and v define;
+  must pass through the measured 3D pupil centre and be parallel to the line
+  from the eye midpoint to the fixation target that h and v define; the two
+  eyes must have the same rotation (coordinated gaze: they always move
+  together, and look straight ahead at h = v = 0);
 * pupils: each 2D centre must equal the measured 3D pupil centre projected with
-  the record's own camera matrix, and must match the dark pupil found in the
-  pixels of that frame's PNG (whose SHA-256 is checked too);
+  the record's own camera matrix; must match the centroid of the pupil the
+  renderer drew in that frame's pupil-mask render (same pose and camera, pupils
+  only); and must sit on the dark pupil in the frame's photoreal PNG. The
+  SHA-256 of both images is checked against the Blender measurement record;
 * camera: P must equal K [R | t], K must follow from the lens, sensor and image
   size, R must be a rotation, and the camera must sit 0.400 m from the eye
   midpoint, on its optical axis, identically in every frame.
@@ -30,10 +34,15 @@ import sys
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from metadata.pupil_pixels import MASK_BAND_ROWS, mask_centroids, pupil_contrast, pupil_contrast_problem
+
 METADATA_PATH = ROOT / "metadata.json"
 REPORT_PATH = ROOT / "outputs" / "validation_report.json"
 PROVENANCE_PATH = ROOT / "metadata" / "official_sequence.json"
 RENDERS_DIR = ROOT / "renders"
+MASKS_DIR = ROOT / "outputs" / "pupil_masks"
 
 REQUIRED_KEYS = ("frame", "theta", "input", "eye_rotation_L", "eye_rotation_R",
                  "pupil_center_2D_L", "pupil_center_2D_R", "camera_matrix")
@@ -47,11 +56,10 @@ FORMULA_TOLERANCE = 1e-12
 GAZE_TOLERANCE_DEGREES = 0.01
 ROLL_TOLERANCE_DEGREES = 0.01
 REPROJECTION_TOLERANCE_PX = 0.01
-PIXEL_TOLERANCE_PX = 1.5  # rendered pupil edges are located to about half a pixel
+PIXEL_TOLERANCE_PX = 0.25  # metadata versus the centroid of the pupil drawn in the mask render
 MATRIX_TOLERANCE = 1e-3
 DISTANCE_TOLERANCE_M = 1e-5
-PUPIL_SEARCH_RADIUS_PX = 52
-PUPIL_DARK_LEVEL = 77  # 0.30 of 255
+EYE_ROWS = (412, 640)  # decoded rows of the RGB frame: both eyes at every allowed gaze
 
 
 class MetadataValidationError(ValueError):
@@ -168,25 +176,6 @@ def read_png_rows(path: Path, first_row: int, last_row: int) -> dict[int, bytes]
     return rows
 
 
-def pupil_in_pixels(rows: dict[int, bytes], around: list[float]) -> list[float] | None:
-    """Centre of the dark pupil within the search radius of ``around``, or ``None`` if absent."""
-    cu, cv = around
-    columns, lines = [], []
-    for row in range(int(cv) - PUPIL_SEARCH_RADIUS_PX, int(cv) + PUPIL_SEARCH_RADIUS_PX + 1):
-        line = rows.get(row)
-        if line is None:
-            continue
-        for column in range(max(0, int(cu) - PUPIL_SEARCH_RADIUS_PX), min(IMAGE_SIZE_PX, int(cu) + PUPIL_SEARCH_RADIUS_PX + 1)):
-            if (column + 0.5 - cu) ** 2 + (row + 0.5 - cv) ** 2 > PUPIL_SEARCH_RADIUS_PX ** 2:
-                continue
-            if max(line[3 * column:3 * column + 3]) < PUPIL_DARK_LEVEL:
-                columns.append(column)
-                lines.append(row)
-    if len(columns) < 100:
-        return None
-    return [(min(columns) + max(columns) + 1) / 2, (min(lines) + max(lines) + 1) / 2]
-
-
 # ---------------------------------------------------------------- checks
 
 def check_schema(records: object, errors: list[str]) -> list[dict]:
@@ -268,7 +257,8 @@ def check_camera(matrix: list[list[float]], calibration: dict, where: str, error
 
 
 def validate(metadata_path: Path = METADATA_PATH, *, provenance_path: Path = PROVENANCE_PATH,
-             renders_dir: Path = RENDERS_DIR, report_path: Path | None = REPORT_PATH) -> dict[str, object]:
+             renders_dir: Path = RENDERS_DIR, masks_dir: Path = MASKS_DIR,
+             report_path: Path | None = REPORT_PATH) -> dict[str, object]:
     """Validate ``metadata_path``; write the report; raise ``MetadataValidationError`` on any failure."""
     errors: list[str] = []
     frames_report: list[dict] = []
@@ -344,26 +334,39 @@ def validate(metadata_path: Path = METADATA_PATH, *, provenance_path: Path = PRO
             if digest != measured.get("image_sha256"):
                 errors.append(f"{where}: {image.name} is not the image this record was measured with (SHA-256 differs)")
             try:
-                rows = read_png_rows(image, IMAGE_SIZE_PX // 2 - 2 * PUPIL_SEARCH_RADIUS_PX, IMAGE_SIZE_PX // 2 + 2 * PUPIL_SEARCH_RADIUS_PX)
+                rows = read_png_rows(image, *EYE_ROWS)
             except (ValueError, zlib.error) as error:
                 errors.append(f"{where}: {image.name} is invalid: {error}")
+
+        mask_found = None
+        mask = masks_dir / f"frame_{k:02d}.png"
+        entry["pupil_mask"] = f"{masks_dir.name}/{mask.name}"
+        if not mask.is_file():
+            errors.append(f"{where}: pupil mask {mask.name} is missing")
+        else:
+            if hashlib.sha256(mask.read_bytes()).hexdigest() != measured.get("pupil_mask", {}).get("image_sha256"):
+                errors.append(f"{where}: pupil mask {mask.name} is not the one rendered with this record (SHA-256 differs)")
+            try:
+                mask_found = mask_centroids(read_png_rows(mask, *MASK_BAND_ROWS))
+            except (ValueError, zlib.error) as error:
+                errors.append(f"{where}: pupil mask {mask.name} is invalid: {error}")
 
         for side in ("L", "R"):
             rotation_deg = record[f"eye_rotation_{side}"]
             reported = record[f"pupil_center_2D_{side}"]
             centre, pupil = centres[side], pupils[side]
-            # Rotation: within range, no roll, and its line of sight passes through the pupil and the target.
+            # Rotation: within range, no roll, through the pupil, and along the shared midpoint -> target line.
             if max(abs(angle) for angle in rotation_deg) > 180.0:
                 errors.append(f"{where}: eye_rotation_{side} is outside [-180, 180] degrees")
             if abs(rotation_deg[1]) > ROLL_TOLERANCE_DEGREES:
                 errors.append(f"{where}: eye_rotation_{side} has {rotation_deg[1]:.4f} degrees of roll about the line of sight")
             gaze = gaze_from_euler_xyz_degrees(rotation_deg)
             to_pupil = angle_degrees(gaze, sub(pupil, centre))
-            to_target = angle_degrees(gaze, sub(target, centre))
+            to_target = angle_degrees(gaze, sub(target, midpoint))
             if to_pupil > GAZE_TOLERANCE_DEGREES:
                 errors.append(f"{where}: eye_rotation_{side} is {to_pupil:.4f} degrees from the measured pupil axis")
             if to_target > GAZE_TOLERANCE_DEGREES:
-                errors.append(f"{where}: eye_rotation_{side} misses the fixation target for this input by {to_target:.4f} degrees")
+                errors.append(f"{where}: eye_rotation_{side} is {to_target:.4f} degrees off the gaze direction for this input")
             # Pupil: inside the image, equal to the projected 3D pupil centre, and not the eyeball centre.
             if not (0.0 <= reported[0] <= IMAGE_SIZE_PX and 0.0 <= reported[1] <= IMAGE_SIZE_PX):
                 errors.append(f"{where}: pupil_center_2D_{side} {reported} is outside the image")
@@ -377,18 +380,27 @@ def validate(metadata_path: Path = METADATA_PATH, *, provenance_path: Path = PRO
             side_entry = {"eye_rotation_euler_xyz_degrees": rotation_deg, "gaze_error_to_target_degrees": to_target,
                           "gaze_error_to_pupil_axis_degrees": to_pupil, "pupil_center_world_m": pupil,
                           "pupil_center_2D_metadata_px": reported, "reprojection_error_px": reprojection}
-            # Pixels: the dark pupil in the rendered frame, searched for around the eyeball's own projection.
-            if rows is not None:
-                found = pupil_in_pixels(rows, project(record["camera_matrix"], centre))
-                if found is None:
-                    errors.append(f"{where}: no pupil found in the pixels of {image.name} for eye {side}")
-                else:
-                    pixel_error = max(abs(found[0] - reported[0]), abs(found[1] - reported[1]))
-                    side_entry["pupil_center_2D_rendered_px"] = found
-                    side_entry["rendered_pixel_error_px"] = pixel_error
-                    if pixel_error > PIXEL_TOLERANCE_PX:
-                        errors.append(f"{where}: pupil_center_2D_{side} is {pixel_error:.2f} px from the pupil in {image.name}")
+            # Pixels (1): where the renderer drew the textured pupil, from the pupil-mask render.
+            if mask_found is not None:
+                found = mask_found[side]
+                pixel_error = max(abs(found[0] - reported[0]), abs(found[1] - reported[1]))
+                side_entry["pupil_center_2D_rendered_px"] = found
+                side_entry["rendered_pixel_error_px"] = pixel_error
+                if pixel_error > PIXEL_TOLERANCE_PX:
+                    errors.append(f"{where}: pupil_center_2D_{side} is {pixel_error:.2f} px from the pupil drawn in {mask.name}")
+            # Pixels (2): in the photoreal frame the reported centre is on a dark pupil.
+            if rows is not None and 0.0 <= reported[0] <= IMAGE_SIZE_PX and EYE_ROWS[0] + 30 <= reported[1] <= EYE_ROWS[1] - 30:
+                core, below = pupil_contrast(rows, reported)
+                side_entry["rgb_pupil_core_level"], side_entry["rgb_iris_below_level"] = core, below
+                problem = pupil_contrast_problem(rows, reported)
+                if problem:
+                    errors.append(f"{where}: pupil_center_2D_{side} {problem} in {image.name}")
             entry[side] = side_entry
+        # Coordinated gaze: both eyes carry the same rotation.
+        binocular = max(abs(a - b) for a, b in zip(record["eye_rotation_L"], record["eye_rotation_R"]))
+        entry["rotation_difference_L_R_degrees"] = binocular
+        if binocular > GAZE_TOLERANCE_DEGREES:
+            errors.append(f"{where}: eye_rotation_L and eye_rotation_R differ by {binocular:.4f} degrees; the eyes must move together")
         # L and R are the subject's own left and right, so the camera sees L on the image-right.
         if record["pupil_center_2D_L"][0] <= record["pupil_center_2D_R"][0]:
             errors.append(f"{where}: pupil L (subject's left) is not right of pupil R in the image")
@@ -403,7 +415,7 @@ def validate(metadata_path: Path = METADATA_PATH, *, provenance_path: Path = PRO
                         "pupil_center_2D": "pixels, origin top-left corner, x right, y down",
                         "camera_matrix": "3 x 4 P = K [R | t], world metres to pixels"},
         "tolerances": {"formula": FORMULA_TOLERANCE, "gaze_degrees": GAZE_TOLERANCE_DEGREES,
-                       "reprojection_px": REPROJECTION_TOLERANCE_PX, "rendered_pixel_px": PIXEL_TOLERANCE_PX},
+                       "reprojection_px": REPROJECTION_TOLERANCE_PX, "pupil_mask_px": PIXEL_TOLERANCE_PX},
         "summary": {
             "max_gaze_error_to_target_degrees": max((side["gaze_error_to_target_degrees"] for side in sides), default=None),
             "max_reprojection_error_px": max((side["reprojection_error_px"] for side in sides), default=None),

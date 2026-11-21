@@ -4,7 +4,9 @@
 
 Checks the files written by ``scripts/generate_official_sequence.py`` (which
 also runs this check itself). Ordinary Python; the images are decoded with the
-standard library and the gaze is measured from their pixels.
+standard library and the gaze is measured from their pixels: each frame's
+pupil-mask render gives where the renderer drew each pupil, and the photoreal
+frame must show a dark pupil at that point.
 """
 from __future__ import annotations
 
@@ -16,20 +18,22 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
-from test_wrapper import EYE_MASK_RADIUS_PX, FOREHEAD, pupil_in_pixels, read_png_rows, region
+from metadata.pupil_pixels import MASK_BAND_ROWS, mask_centroids, pupil_contrast_problem
+from test_wrapper import FOREHEAD, assert_same_region, read_png_rows, region
 from wrapper.renderer import png_size
 
 RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
 CONTACT_SHEET = ROOT / "outputs" / "contact_sheet.png"
+PUPIL_MASKS = ROOT / "outputs" / "pupil_masks"
 OFFICIAL_METADATA = ROOT / "metadata.json"
 OFFICIAL_KEYS = ["frame", "theta", "input", "eye_rotation_L", "eye_rotation_R",
                  "pupil_center_2D_L", "pupil_center_2D_R", "camera_matrix"]
 DIRECTIONS = ("Top", "Upper-right", "Right-upper", "Right-lower", "Lower-right",
               "Bottom", "Lower-left", "Left-lower", "Left-upper", "Upper-left")
-MIN_RADIUS_PX = 10.0  # every frame is a full-range move; the pupil travels about 16 px
-MAX_DIRECTION_ERROR_DEGREES = 8.0  # pupil edges are located to about half a pixel
-PIXEL_TOLERANCE_PX = 2.0
+MIN_RADIUS_PX = 10.0  # every frame is a full-range move; the pupil travels about 12 px
+MAX_DIRECTION_ERROR_DEGREES = 3.0  # mask centroids are exact to a few hundredths of a pixel
+PIXEL_TOLERANCE_PX = 0.25
 POSE_MEASURED_KEYS = ("reference_point_world_m", "camera_distance_m")
 
 
@@ -46,7 +50,7 @@ def verify(generated_after: float | None = None) -> None:
     if generated_after is not None:
         assert OFFICIAL_METADATA.stat().st_mtime >= generated_after, "metadata.json is older than this run"
 
-    last_row = 512 + EYE_MASK_RADIUS_PX + 20
+    last_row = 640
     pixels, measured = [], []
     for k, (path, record) in enumerate(zip(frames, records)):
         theta = 2.0 * pi * k / 10.0
@@ -92,17 +96,19 @@ def verify(generated_after: float | None = None) -> None:
             else:
                 assert value == first[key], f"frame {k}: camera {key} changed"
         assert abs(calibration["camera_distance_m"] - 0.400) < 1e-6, f"frame {k}: camera is not 0.400 m away"
-        assert region(rows, FOREHEAD) == region(pixels[0], FOREHEAD), f"frame {k}: the forehead changed"
+        assert_same_region(region(rows, FOREHEAD), region(pixels[0], FOREHEAD), f"frame {k}: the forehead changed")
         assert max(record["angular_error_degrees"].values()) < 0.001, f"frame {k}: eyes are off target"
-        # The pupil in the rendered pixels is where the metadata says it is.
-        found = {}
+        # The pupil the renderer drew (mask render of the same pose and camera) is where the
+        # metadata says it is, and the photoreal frame shows a dark pupil at that point.
+        mask = PUPIL_MASKS / f"frame_{k:02d}.png"
+        assert record["pupil_mask"]["image"] == f"outputs/pupil_masks/{mask.name}" and png_size(mask) == (1024, 1024)
+        found = mask_centroids(read_png_rows(mask, MASK_BAND_ROWS[1]))
         for side in ("L", "R"):
-            # L is the subject's own left eye, which the camera sees on the image-right.
-            eye_centre = (512.0 + (1 if side == "L" else -1) * 187.7, 512.0)
-            found[side] = pupil_in_pixels(rows, eye_centre)
             reported = record["pupil_center_2D"][side]
             error = max(abs(found[side][0] - reported[0]), abs(found[side][1] - reported[1]))
-            assert error <= PIXEL_TOLERANCE_PX, f"frame {k} {side}: rendered pupil is {error:.2f} px from the metadata"
+            assert error <= PIXEL_TOLERANCE_PX, f"frame {k} {side}: rendered pupil is {error:.3f} px from the metadata"
+            problem = pupil_contrast_problem(rows, reported)
+            assert problem is None, f"frame {k} {side}: pupil_center_2D {problem}"
         measured.append(found)
     assert len({bytes(b"".join(rows)) for rows in pixels}) == 10, "Two frames are the same image"
 

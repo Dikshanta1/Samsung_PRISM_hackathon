@@ -24,12 +24,12 @@ sys.path.insert(0, str(ROOT))
 from wrapper.blender_runner import blender_executable
 from wrapper.eyes import DEFAULT_SCENE, BlenderWorkerError, Eyes
 from wrapper.renderer import png_size, render as render_saved_scene
+from metadata.pupil_pixels import MASK_BAND_ROWS, mask_centroids, pupil_contrast_problem
 
-MIN_SHIFT_PX = 10.0  # a full-range move shifts each pupil by about 16 px
+MIN_SHIFT_PX = 10.0  # a full-range move shifts each pupil by about 12 px
 CROSS_AXIS_PX = 1.0
-PIXEL_TOLERANCE_PX = 2.0  # rendered pupil versus the centre Blender reports
-EYE_MASK_RADIUS_PX = 52
-DARK_LEVEL = 77  # 0.30 of 255: the pupil is dark but carries a faint reflection
+PIXEL_TOLERANCE_PX = 0.25  # pupil drawn in the mask render versus the centre Blender reports
+EYE_ROWS_LAST = 640  # decoding rows 0..640 covers both eyes at every allowed gaze
 FOREHEAD = ((130, 250), (440, 580))  # rows, columns: no eye pixels, so it must never change
 DIRECTIONS = {"left": (-1.0, 0.0), "right": (1.0, 0.0), "up": (0.0, 1.0), "down": (0.0, -1.0)}
 EXPECTED_SIGN = {"left": (-1, 0), "right": (1, 0), "up": (0, -1), "down": (0, 1)}  # (du, dv); v grows downward
@@ -89,20 +89,36 @@ def read_png_rows(path: Path, last_row: int) -> list[bytes]:
     return rows
 
 
-def pupil_in_pixels(rows: list[bytes], eye_centre: tuple[float, float]) -> tuple[float, float]:
-    """Centre of the dark pupil blob near ``eye_centre``, in (u, v) with pixel centres at +0.5."""
-    cu, cv = eye_centre
-    columns, lines = [], []
-    for row in range(int(cv) - EYE_MASK_RADIUS_PX, int(cv) + EYE_MASK_RADIUS_PX + 1):
-        line = rows[row]
-        for column in range(int(cu) - EYE_MASK_RADIUS_PX, int(cu) + EYE_MASK_RADIUS_PX + 1):
-            if (column + 0.5 - cu) ** 2 + (row + 0.5 - cv) ** 2 > EYE_MASK_RADIUS_PX ** 2:
-                continue
-            if max(line[3 * column:3 * column + 3]) < DARK_LEVEL:
-                columns.append(column)
-                lines.append(row)
-    assert len(columns) > 100, f"No pupil found near {eye_centre} ({len(columns)} dark pixels)"
-    return (min(columns) + max(columns) + 1) / 2, (min(lines) + max(lines) + 1) / 2
+# EEVEE on the GPU reproduces a frame to within one 8-bit level in a handful of pixels
+# (dithered transparency of hair and lashes); "the same image" means within this.
+SAME_IMAGE_MAX_LEVELS = 2
+SAME_IMAGE_MAX_PIXELS = 64  # of 1,048,576
+
+
+def image_difference(a: Path, b: Path) -> tuple[int, int]:
+    """(pixels that differ, largest difference in 8-bit levels) between two renders."""
+    rows_a, rows_b = read_png_rows(a, 1023), read_png_rows(b, 1023)
+    count = largest = 0
+    for line_a, line_b in zip(rows_a, rows_b):
+        if line_a == line_b:
+            continue
+        for column in range(0, len(line_a), 3):
+            delta = max(abs(line_a[column + i] - line_b[column + i]) for i in range(3))
+            if delta:
+                count += 1
+                largest = max(largest, delta)
+    return count, largest
+
+
+def assert_same_image(a: Path, b: Path, message: str) -> None:
+    count, largest = image_difference(a, b)
+    assert count <= SAME_IMAGE_MAX_PIXELS and largest <= SAME_IMAGE_MAX_LEVELS, \
+        f"{message} ({count} pixels differ, by up to {largest} levels)"
+
+
+def assert_same_region(a: bytes, b: bytes, message: str) -> None:
+    largest = max((abs(x - y) for x, y in zip(a, b)), default=0)
+    assert len(a) == len(b) and largest <= SAME_IMAGE_MAX_LEVELS, f"{message} (by up to {largest} levels)"
 
 
 def region(rows: list[bytes], area: tuple[tuple[int, int], tuple[int, int]]) -> bytes:
@@ -133,7 +149,11 @@ def check_direction(name: str, state: dict, centre: dict) -> None:
         assert along >= MIN_SHIFT_PX, f"{name}: pupil {side} moved {along:.2f} px in the commanded direction"
         assert abs(across) < CROSS_AXIS_PX, f"{name}: pupil {side} drifted {across:.2f} px across the commanded axis"
     assert max(state["angular_error_degrees"].values()) < 0.001, f"{name}: eyes are not on the target"
-    assert state["convergence"]["vergence_point_error_m"] < 1e-5, f"{name}: eyes do not converge on the target"
+    alignment = state["binocular_alignment"]
+    assert alignment["gaze_angle_between_eyes_degrees"] < 1e-3 and alignment["rotation_difference_degrees"] < 1e-3, \
+        f"{name}: the eyes do not move together ({alignment})"
+    rotations = state["eye_rotation_euler_xyz_degrees"]
+    assert max(abs(a - b) for a, b in zip(rotations["L"], rotations["R"])) < 1e-3, f"{name}: left and right rotations differ"
 
 
 def main() -> None:
@@ -186,53 +206,60 @@ def main() -> None:
         print("REPEATED_MOVEMENT_OK accumulated_rotation=none reset_exact=true")
 
         # Rendering: real PNGs, default names in the configured directory.
-        neutral_png = eyes.render()
+        neutral_png = eyes.render(pupil_mask=True)
         assert neutral_png == base / "run_a" / "eye_render_0001.png" and neutral_png.is_file()
+        neutral_report = eyes.last_render
+        neutral_mask = base / "run_a" / "eye_render_0001_pupil_mask.png"
+        assert neutral_report["pupil_mask"]["output"] == str(neutral_mask) and neutral_mask.is_file()
         eyes.move(-1.0, 0.0)
-        left_png = eyes.render("left.png")
+        left_png = eyes.render("left.png", pupil_mask="left_mask.png")
         assert left_png == base / "run_a" / "left.png"
         left_report = eyes.last_render
         eyes.move(1.0, 0.0)
-        right_png = eyes.render(base / "elsewhere" / "nested" / "right.png")  # absolute path, new folders
+        right_png = eyes.render(base / "elsewhere" / "nested" / "right.png", pupil_mask=True)  # absolute path, new folders
         assert right_png == base / "elsewhere" / "nested" / "right.png"
         right_report = eyes.last_render
         eyes.reset()
         reset_png = eyes.render()
-        assert reset_png == base / "run_a" / "eye_render_0002.png"
+        assert reset_png == base / "run_a" / "eye_render_0002.png" and "pupil_mask" not in eyes.last_render
         for path in (neutral_png, left_png, right_png, reset_png):
             assert png_size(path) == (1024, 1024) and path.stat().st_size > 10_000, f"{path} is not a real render"
         assert len({digest(neutral_png), digest(left_png), digest(right_png)}) == 3, "Different poses rendered identically"
-        assert digest(reset_png) == digest(neutral_png), "The render after reset() differs from the neutral render"
+        assert_same_image(reset_png, neutral_png, "The render after reset() differs from the neutral render")
         saved_png = render_saved_scene(base / "saved_scene.png")
-        assert digest(saved_png) == digest(neutral_png), "reset() does not match the neutral pose saved in the scene"
+        assert_same_image(saved_png, neutral_png, "reset() does not match the neutral pose saved in the scene")
+        assert not (base / "run_a" / "eye_render_0002_pupil_mask.png").exists(), "A pupil mask was written without being asked for"
 
-        # The pupils move in the rendered pixels, and nothing else does.
-        last_row = 512 + EYE_MASK_RADIUS_PX + 1
-        pixels = {name: read_png_rows(path, last_row) for name, path in
+        # The pupils move in the rendered pixels, and nothing else does. The pupil-mask
+        # render shows where the renderer drew each pupil; the photoreal frame must be dark there.
+        reports = {"centre": neutral_report, "left": left_report, "right": right_report}
+        pixels = {name: read_png_rows(path, EYE_ROWS_LAST) for name, path in
                   (("centre", neutral_png), ("left", left_png), ("right", right_png))}
-        reports = {"centre": centre, "left": left_report, "right": right_report}
         measured = {}
         for name, rows in pixels.items():
-            assert region(rows, FOREHEAD) == region(pixels["centre"], FOREHEAD), f"{name}: the forehead changed"
+            assert_same_region(region(rows, FOREHEAD), region(pixels["centre"], FOREHEAD), f"{name}: the forehead changed")
+            mask = Path(reports[name]["pupil_mask"]["output"])
+            found = mask_centroids(read_png_rows(mask, MASK_BAND_ROWS[1]))
             for side in ("L", "R"):
-                found = pupil_in_pixels(rows, tuple(centre["pupil_center_2D"][side]))
                 predicted = reports[name]["pupil_center_2D"][side]
-                error = max(abs(found[0] - predicted[0]), abs(found[1] - predicted[1]))
-                assert error <= PIXEL_TOLERANCE_PX, f"{name} {side}: rendered pupil is {error:.2f} px from the reported centre"
-                measured[name, side] = found
+                error = max(abs(found[side][0] - predicted[0]), abs(found[side][1] - predicted[1]))
+                assert error <= PIXEL_TOLERANCE_PX, f"{name} {side}: rendered pupil is {error:.3f} px from the reported centre"
+                problem = pupil_contrast_problem(rows, predicted)
+                assert problem is None, f"{name} {side}: the reported pupil centre {problem}"
+                measured[name, side] = found[side]
         for side in ("L", "R"):
             assert measured["left", side][0] - measured["centre", side][0] <= -MIN_SHIFT_PX, f"left: rendered pupil {side} did not move left"
             assert measured["right", side][0] - measured["centre", side][0] >= MIN_SHIFT_PX, f"right: rendered pupil {side} did not move right"
         print("RENDER_OK size=1024x1024 rendered_shift_L="
               f"{measured['left', 'L'][0] - measured['centre', 'L'][0]:+.1f}/{measured['right', 'L'][0] - measured['centre', 'L'][0]:+.1f}px "
-              "reset_render_identical=true")
+              "pupil_masks=true reset_render_identical=true")
 
         # A second object with another output directory is independent of the first.
         other = Eyes(output_dir=base / "run_b")
         assert other.position == (0.0, 0.0)
         other_png = other.render()
         assert other_png == base / "run_b" / "eye_render_0001.png"
-        assert digest(other_png) == digest(neutral_png), "A new Eyes object does not start in the neutral pose"
+        assert_same_image(other_png, neutral_png, "A new Eyes object does not start in the neutral pose")
         print(f"OUTPUT_DIRECTORIES_OK {neutral_png.parent.name} {other_png.parent.name} {right_png.parent}")
 
         # The dataset script uses the same public API.
@@ -244,12 +271,13 @@ def main() -> None:
         for frame in manifest["frames"]:
             assert png_size(base / "dataset" / frame["image"]) == (1024, 1024)
             assert frame["camera_matrix"] == centre["camera_matrix"]
-        assert digest(base / "dataset" / "frame_0000.png") == digest(left_png)
+        assert_same_image(base / "dataset" / "frame_0000.png", left_png, "The dataset script rendered a different left gaze")
         print("DATASET_SCRIPT_OK frames=2")
 
         # Failures are reported, not swallowed.
         expect("missing scene", FileNotFoundError, "not found", lambda: Eyes(scene=base / "missing.blend"))
         expect("non-PNG output", BlenderWorkerError, ".png", lambda: eyes.render("frame.jpg"))
+        expect("non-PNG pupil mask", BlenderWorkerError, ".png", lambda: eyes.render("frame.png", pupil_mask="mask.jpg"))
         expect("timeout", BlenderWorkerError, "did not finish", lambda: Eyes(base, timeout=0.001).move(0.0, 0.0))
         empty = base / "empty.blend"
         subprocess.run([str(blender_executable()), "--background", "--factory-startup", "--python-expr",

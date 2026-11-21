@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "blender"))
 from calibration import state, validate_input
 from camera_setup import calibration_report, camera_state, projection_matrix, pupil_centre_world, pupil_centres_px, verify_camera
 from lighting_setup import lighting_state, verify_lighting
+from pupil_mask import render_pupil_mask
 from render_frame import render_still
 
 RESULT_PREFIX = "WORKER_RESULT "
@@ -90,6 +91,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.output is None:
             raise WorkerError("render requires --output")
         result["output"] = render_still(args.output)["output"]
+        if args.mask is not None:
+            result["pupil_mask"] = {"output": str(args.mask.resolve()), "centroid_2D": render_pupil_mask(args.mask)}
+    elif args.mask is not None:
+        raise WorkerError("--mask is only valid with render")
 
     if camera_state(scene) != camera_before:
         raise WorkerError("The locked camera changed while executing the command")
@@ -106,6 +111,7 @@ def main() -> None:
     parser.add_argument("--h", type=float, default=0.0)
     parser.add_argument("--v", type=float, default=0.0)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--mask", type=Path, help="Also write the pupil-mask render here (render only)")
     parser.add_argument("--scene", type=Path, help="The .blend file Blender is expected to have loaded")
     arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     args = parser.parse_args(arguments)

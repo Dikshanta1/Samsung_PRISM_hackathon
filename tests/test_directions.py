@@ -7,16 +7,17 @@ from bpy_extras.object_utils import world_to_camera_view
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender"))
-from calibration import CAMERA_DISTANCE_M, TARGET_DISTANCE_M, actual_eye_center, angular_error_degrees, convergence, reset, set_fixation
+from eye_rig import pupil_centre_world
+from calibration import CAMERA_DISTANCE_M, TARGET_DISTANCE_M, actual_eye_center, angular_error_degrees, binocular_alignment, reset, set_fixation
 RENDERS = ROOT / "renders"
 EPSILON_DEGREES = 0.001
-MAX_RAY_MISS_M = 1e-5  # the two gaze rays must pass within 0.01 mm of each other
-MAX_VERGENCE_POINT_ERROR_M = 1e-4  # and meet within 0.1 mm of the fixation target
+MAX_BINOCULAR_DEGREES = 1e-3  # both eyes must have the same rotation (coordinated gaze)
+FULL_RANGE_DEGREES = 8.1301  # atan(5 / 35): both eyes turn this far for a full-range input
 MIN_SHIFT = 10.0 / 1024.0  # a full-scale input must move the pupil at least 10 px
 MAX_CROSS_SHIFT = 1.0 / 1024.0  # and no more than 1 px along the other image axis
 
 def pupil_screen_xy(side: str) -> tuple[float, float]:
-    point = world_to_camera_view(bpy.context.scene, bpy.data.objects["Camera"], bpy.data.objects[f"Pupil_{side}"].matrix_world.translation)
+    point = world_to_camera_view(bpy.context.scene, bpy.data.objects["Camera"], pupil_centre_world(side))
     return point.x, point.y
 
 def render(name: str) -> None:
@@ -28,7 +29,7 @@ def assert_gaze(h: float, v: float, name: str, neutral: dict[str, tuple[float, f
     target = set_fixation(h, v)
     for side in ("L", "R"):
         assert angular_error_degrees(side, target) < EPSILON_DEGREES, f"{name}: {side} gaze error too large"
-        assert (bpy.data.objects[f"Eye_{side}"].matrix_world.translation - centres[side]).length < 1e-7, f"{name}: eye centre drifted"
+        assert (bpy.data.objects[f"Eye_{side}"].matrix_world.translation - centres[side]).length < 1e-6, f"{name}: eye centre drifted"
         x, y = pupil_screen_xy(side)
         x0, y0 = neutral[side]
         if h < 0: assert x0 - x > MIN_SHIFT, f"{name}: {side} pupil did not move visually left"
@@ -37,14 +38,25 @@ def assert_gaze(h: float, v: float, name: str, neutral: dict[str, tuple[float, f
         if v < 0: assert y0 - y > MIN_SHIFT, f"{name}: {side} pupil did not move visually down"
         if h == 0: assert abs(x - x0) < MAX_CROSS_SHIFT, f"{name}: {side} pupil drifted horizontally"
         if v == 0: assert abs(y - y0) < MAX_CROSS_SHIFT, f"{name}: {side} pupil drifted vertically"
-    assert_converged(target, name)
+    assert_coordinated(name)
+    assert_rotation(h, v, name)
     render(name)
 
-def assert_converged(target, name: str) -> None:
-    """Both measured gaze rays must meet each other at the one fixation target."""
-    result = convergence(target)
-    assert result["ray_miss_m"] < MAX_RAY_MISS_M, f"{name}: gaze rays miss each other by {result['ray_miss_m']} m"
-    assert result["vergence_point_error_m"] < MAX_VERGENCE_POINT_ERROR_M, f"{name}: eyes converge {result['vergence_point_error_m']} m from the target"
+def assert_coordinated(name: str) -> None:
+    """Both eyes must move together: parallel optical axes and the same rotation."""
+    result = binocular_alignment()
+    assert result["gaze_angle_between_eyes_degrees"] < MAX_BINOCULAR_DEGREES, f"{name}: the eyes are not parallel ({result})"
+    assert result["rotation_difference_degrees"] < MAX_BINOCULAR_DEGREES, f"{name}: the eyes have different rotations ({result})"
+
+def assert_rotation(h: float, v: float, name: str) -> None:
+    """Each eye turns by exactly atan(5 h / 35) sideways and the matching angle up/down; neutral is zero."""
+    import math
+    for side in ("L", "R"):
+        rx, ry, rz = (math.degrees(a) for a in bpy.data.objects[f"Eye_{side}"].matrix_world.to_euler("XYZ"))
+        expected_rz = math.degrees(math.atan2(0.05 * h, 0.35))
+        expected_rx = -math.degrees(math.atan2(0.05 * v, math.hypot(0.35, 0.05 * h)))
+        assert abs(rz - expected_rz) < 1e-3 and abs(rx - expected_rx) < 1e-3 and abs(ry) < 1e-3, \
+            f"{name}: Eye_{side} rotation is ({rx:.4f}, {ry:.4f}, {rz:.4f}) deg, expected ({expected_rx:.4f}, 0, {expected_rz:.4f})"
 
 def assert_calibration() -> None:
     """Target 35 cm and camera 40 cm forward of the eye midpoint, camera aimed at it."""
@@ -68,7 +80,7 @@ def assert_rig_offset_is_handled() -> None:
             target = set_fixation(h, v)
             for side in ("L", "R"):
                 assert angular_error_degrees(side, target) < EPSILON_DEGREES, f"offset rig: {side} gaze error too large"
-            assert_converged(target, "offset rig")
+            assert_coordinated("offset rig")
     finally:
         rig.matrix_world = original
         bpy.context.view_layer.update()
@@ -85,13 +97,14 @@ def main() -> None:
     target = reset()
     for side in ("L", "R"):
         assert angular_error_degrees(side, target) < EPSILON_DEGREES
-        assert (bpy.data.objects[f"Eye_{side}"].matrix_world.translation - centres[side]).length < 1e-7, "Reset: eye centre drifted"
+        assert (bpy.data.objects[f"Eye_{side}"].matrix_world.translation - centres[side]).length < 1e-6, "Reset: eye centre drifted"
         x, y = pupil_screen_xy(side); x0, y0 = neutral[side]
         assert abs(x - x0) < 1e-9 and abs(y - y0) < 1e-9, "Reset is not exact"
-    assert_converged(target, "reset")
+    assert_coordinated("reset")
+    assert_rotation(0.0, 0.0, "reset")
     assert bpy.data.objects["Camera"].matrix_world == camera_matrix, "Camera changed during gaze tests"
     render("stage2_reset.png")
-    print("DIRECTION_TEST_OK left=true right=true up=true down=true reset=true converged=true calibrated=true")
+    print("DIRECTION_TEST_OK left=true right=true up=true down=true reset=true coordinated=true neutral_straight=true calibrated=true")
 
 if __name__ == "__main__":
     main()

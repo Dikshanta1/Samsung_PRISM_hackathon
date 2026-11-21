@@ -51,8 +51,8 @@ Returns what Blender measured:
 | --- | --- |
 | `inputs` | `{"h", "v"}` as applied |
 | `fixation_target_world_m` | Target position `[x, y, z]` |
-| `angular_error_degrees` | Per eye, angle between the measured gaze and the target direction |
-| `convergence` | `ray_miss_m`, `vergence_point_error_m` |
+| `angular_error_degrees` | Per eye, angle between the measured gaze and the shared gaze direction (eye midpoint to target) |
+| `binocular_alignment` | `gaze_angle_between_eyes_degrees`, `rotation_difference_degrees` (both 0: the eyes move together) |
 | `eye_rotation_euler_xyz_degrees` | Per eye, world-frame `[rx, ry, rz]` |
 | `world_eye_rotations_quaternion` | Per eye, world-frame `[w, x, y, z]` |
 | `pupil_center_2D` | Per eye, `[u, v]` pixels (origin top-left, `v` down) |
@@ -60,7 +60,7 @@ Returns what Blender measured:
 | `camera_fixed`, `lighting_constant` | `true`; the command fails otherwise |
 | `scene`, `blender_version` | The file Blender loaded and the Blender version |
 
-`L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / MakeHuman rig convention.
+`L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / Character Creator rig convention.
 
 ### `reset() -> dict`
 
@@ -117,7 +117,7 @@ Runs under system Python against the real `scene.blend`, with no mocks, and take
 - left, right, up and down each move both pupils at least 10 px the commanded way, on target to 0.001°;
 - repeating a move, or reaching it by a different route, gives the identical pose, and `reset()` gives the identical neutral pose;
 - renders are valid 1024 × 1024 PNGs; the pupil found in the decoded pixels is within 2 px of the reported centre and moves left and right; the forehead region is pixel-identical;
-- the render after `reset()` is byte-identical to the first neutral render and to a render of the saved scene;
+- the render after `reset()` matches the first neutral render and a render of the saved scene (within GPU rounding: at most 2 levels on 64 pixels);
 - default, relative and absolute output paths and two separate output directories work;
 - a missing scene, a non-PNG path, a timeout and a wrong `.blend` file are each reported;
 - `scene.blend` is byte-identical afterwards.

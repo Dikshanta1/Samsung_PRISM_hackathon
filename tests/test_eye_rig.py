@@ -14,10 +14,10 @@ from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender"))
-from eye_rig import EYE_CENTERS, zero_pose, set_eye_rotation, world_eye_center
+from eye_rig import EYE_CENTERS, pupil_centre_world, zero_pose, set_eye_rotation, world_eye_center
 
 ANGLE = 0.30  # radians used for direction checks (~17 degrees)
-MIN_SHIFT_PX = 20.0  # required pupil shift along the commanded image axis
+MIN_SHIFT_PX = 15.0  # required pupil shift along the commanded image axis (~25 px at 17 degrees)
 MAX_CROSS_PX = 3.0  # allowed drift along the other image axis
 SIDES = tuple(EYE_CENTERS)
 
@@ -27,10 +27,8 @@ def near(a: Vector, b: Vector, epsilon: float = 1e-6) -> bool:
 
 
 def pupil_world(side: str) -> Vector:
-    """Geometric centre of the pupil mesh in world space."""
-    obj = bpy.data.objects[f"Pupil_{side}"]
-    points = [obj.matrix_world @ v.co for v in obj.data.vertices]
-    return sum(points, Vector()) / len(points)
+    """Centre of the pupil margin in world space."""
+    return pupil_centre_world(side)
 
 
 def pupil_pixel(side: str) -> Vector:
@@ -41,15 +39,25 @@ def pupil_pixel(side: str) -> Vector:
 
 
 def check_required_objects(rig: bpy.types.Object) -> None:
-    required = ["Eye_L", "Eye_R", "Iris_L", "Iris_R", "Pupil_L", "Pupil_R", "EyeRig", "Camera", "FixationTarget"]
+    required = ["Eye_L", "Eye_R", "Pupil_L", "Pupil_R", "EyeRig", "FaceRig", "CC_Base_Body", "Camera", "FixationTarget"]
     for name in required:
         assert bpy.data.objects.get(name), f"Missing required object: {name}"
     for name in ("EyeBone_L", "EyeBone_R"):
         assert rig.pose.bones.get(name), f"Missing required bone: {name}"
+    assert rig.parent and rig.parent.name == "FaceRig" and rig.parent_bone == "CC_Base_Head", "EyeRig must ride on the head bone"
     for side in SIDES:
-        for feature in ("Iris", "Pupil"):
-            parent = bpy.data.objects[f"{feature}_{side}"].parent
-            assert parent and parent.name == f"Eye_{side}", f"{feature}_{side} is not parented to Eye_{side}"
+        eye = bpy.data.objects[f"Eye_{side}"]
+        assert eye.parent == rig and eye.parent_type == "BONE" and eye.parent_bone == f"EyeBone_{side}", f"Eye_{side} is not a rigid child of EyeBone_{side}"
+        assert not any(m.type == "ARMATURE" for m in eye.modifiers), f"Eye_{side} must not be skinned"
+        materials = [m.name for m in eye.data.materials]
+        assert materials and all(n.startswith("Std_Eye_") for n in materials), f"Eye_{side} materials: {materials}"
+        pupil = bpy.data.objects[f"Pupil_{side}"]
+        assert pupil.parent == eye, f"Pupil_{side} is not parented to Eye_{side}"
+        assert pupil.hide_render, f"Pupil_{side} landmark must not render"
+    # Every image the scene uses must be inside the .blend (no paths to the author's machine).
+    for image in bpy.data.images:
+        if image.users and image.source == "FILE":
+            assert image.packed_file is not None, f"Image {image.name} is not packed"
 
 
 def check_directions(rig: bpy.types.Object) -> None:

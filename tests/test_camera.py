@@ -3,7 +3,7 @@
     Blender --background --factory-startup scene.blend \
         --python-exit-code 1 --python tests/test_camera.py
 
-Nothing is saved to the .blend file. The test writes five renders to
+Nothing is saved to the .blend file. The test writes five renders and their pupil masks to
 ``renders/stage3_*.png`` and the derived calibration to
 ``metadata/camera_calibration.json``.
 """
@@ -29,11 +29,13 @@ from camera_setup import (
     extrinsics, intrinsic_matrix, measured_reference_point, project_point, projection_matrix, verify_camera,
 )
 from lighting_setup import LightingConfigurationError, lighting_state, verify_lighting
+from pupil_mask import render_pupil_mask
 from render_frame import render_still
+sys.path.insert(0, str(ROOT))
+from metadata.pupil_pixels import pupil_contrast_problem
 
 RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
-PIXEL_TOLERANCE = 2e-3  # agreement required with Blender's own projection, in pixels
 POSES = (
     ("centre", 0.0, 0.0, (0, 0)),
     ("left", -1.0, 0.0, (-1, 0)),
@@ -42,10 +44,12 @@ POSES = (
     ("down", 0.0, -1.0, (0, 1)),
 )
 MIN_VISIBLE_SHIFT_PX = 10.0  # measured in the rendered image, not predicted
-MAX_PREDICTION_ERROR_PX = 1.5  # rendered pupil centre versus projected pupil centre
+# The head is 1.72 m above the world origin, where one float32 step in Blender's object
+# matrices is about 1.2e-7 m. Known points must project to within 1 micrometre of world
+# position, i.e. focal * 1e-6 / depth pixels (0.005 px at the eyes, 0.04 px at the target).
+KNOWN_POINT_TOLERANCE_M = 1e-6
+MAX_PREDICTION_ERROR_PX = 0.25  # pupil drawn in the mask render versus projected pupil centre
 MAX_STATIC_DIFFERENCE = 2.0 / 255.0  # regions away from the eyes must not change
-EYE_MASK_RADIUS_PX = 52.0  # holds the pupil at every allowed gaze; excludes the shaded sclera edge
-DARK_THRESHOLD = 0.30  # the glossy pupil reflects the lights, so it is dark but not black
 # (name, row range, column range) in top-left-origin pixels, all clear of the eyes.
 STATIC_REGIONS = (
     ("background", (0, 60), (0, 60)),
@@ -199,13 +203,17 @@ def test_known_points() -> None:
         expected_u = 512.0 + focal * lateral / depth
         expected_v = 512.0 - focal * upward / depth
         u, v, d = project_point(s, point)
-        assert abs(u - expected_u) < 1e-3 and abs(v - expected_v) < 1e-3, f"{label}: projected to ({u}, {v}), expected ({expected_u}, {expected_v})"
+        tolerance = focal * KNOWN_POINT_TOLERANCE_M / depth
+        assert abs(u - expected_u) < tolerance and abs(v - expected_v) < tolerance, \
+            f"{label}: projected to ({u}, {v}), expected ({expected_u}, {expected_v})"
         assert abs(d - depth) < 1e-6, f"{label}: depth {d}, expected {depth}"
         bu, bv, bd = view_projection_px(camera, point)
-        assert abs(u - bu) < PIXEL_TOLERANCE and abs(v - bv) < PIXEL_TOLERANCE and abs(d - bd) < 1e-6, f"{label}: disagrees with world_to_camera_view ({bu}, {bv})"
+        assert abs(u - bu) < tolerance and abs(v - bv) < tolerance and abs(d - bd) < 1e-6, f"{label}: disagrees with world_to_camera_view ({bu}, {bv})"
         print(f"KNOWN_POINT {label}: u={u:.3f} v={v:.3f} depth={d:.4f} m")
     u, v, _ = project_point(s, reference)
-    assert abs(u - 512.0) < 1e-3 and abs(v - 512.0) < 1e-3, f"Eye midpoint projects to ({u}, {v}), not the image centre"
+    tolerance = focal * KNOWN_POINT_TOLERANCE_M / CAMERA_DISTANCE_M
+    assert abs(u - 512.0) < tolerance and abs(v - 512.0) < tolerance, \
+        f"Eye midpoint projects to ({u}, {v}), not the image centre"
     try:
         project_point(s, camera.matrix_world.translation + Vector((0, -0.1, 0)))
     except ValueError:
@@ -216,22 +224,30 @@ def test_known_points() -> None:
 
 
 def test_against_blender_projection() -> None:
-    """P = K [R | t] must match both of Blender's projection paths on random points."""
+    """P = K [R | t] must match both of Blender's projection paths on random points.
+
+    Errors are compared as world distances (pixels * depth / focal), because
+    Blender projects in float32 and the head is 1.72 m from the world origin.
+    """
     s = scene()
     camera = s.camera
+    focal = intrinsic_matrix(s)[0][0]
+    reference = measured_reference_point()
     generator = random.Random(2026)
-    worst_view = worst_clip = 0.0
+    worst_view = worst_clip = worst_px = 0.0
     for _ in range(500):
-        point = Vector((generator.uniform(-0.25, 0.25), generator.uniform(-0.45, 0.20), generator.uniform(-0.25, 0.30)))
+        point = reference + Vector((generator.uniform(-0.12, 0.12), generator.uniform(-0.30, 0.20), generator.uniform(-0.12, 0.12)))
         u, v, depth = project_point(s, point)
         bu, bv, bdepth = view_projection_px(camera, point)
         cu, cv = blender_projection_px(camera, point)
-        worst_view = max(worst_view, abs(u - bu), abs(v - bv))
-        worst_clip = max(worst_clip, abs(u - cu), abs(v - cv))
+        worst_view = max(worst_view, max(abs(u - bu), abs(v - bv)) * depth / focal)
+        worst_clip = max(worst_clip, max(abs(u - cu), abs(v - cv)) * depth / focal)
+        worst_px = max(worst_px, abs(u - bu), abs(v - bv), abs(u - cu), abs(v - cv))
         assert abs(depth - bdepth) < 1e-6
-    assert worst_view < PIXEL_TOLERANCE, f"P differs from world_to_camera_view by {worst_view} px"
-    assert worst_clip < PIXEL_TOLERANCE, f"P differs from Blender's projection matrix by {worst_clip} px"
-    print(f"BLENDER_PROJECTION_OK points=500 max_error_view_px={worst_view:.2e} max_error_matrix_px={worst_clip:.2e}")
+    assert worst_view < KNOWN_POINT_TOLERANCE_M, f"P differs from world_to_camera_view by {worst_view * 1e6:.3f} um"
+    assert worst_clip < KNOWN_POINT_TOLERANCE_M, f"P differs from Blender's projection matrix by {worst_clip * 1e6:.3f} um"
+    print(f"BLENDER_PROJECTION_OK points=500 max_error_view_um={worst_view * 1e6:.3f} max_error_matrix_um={worst_clip * 1e6:.3f} "
+          f"max_error_px={worst_px:.2e}")
 
 
 def test_general_camera_model() -> None:
@@ -298,32 +314,15 @@ def load_pixels(path: Path) -> np.ndarray:
     return buffer.reshape(height, width, 4)[::-1, :, :3]
 
 
-def measured_pupil_centre(pixels: np.ndarray, eye_centre_px: tuple[float, float]) -> tuple[float, float]:
-    """Centre of the dark pupil disc inside a fixed disc around the eyeball's projected centre.
-
-    The search area is anchored to the eyeball, which does not move, so this
-    measurement does not depend on where the calibration says the pupil is.
-    The centre is taken from the blob's extent rather than its centroid because
-    specular highlights punch bright holes in the pupil and would bias a mean.
-    """
-    rows, columns = np.mgrid[0:pixels.shape[0], 0:pixels.shape[1]]
-    u, v = columns + 0.5, rows + 0.5
-    inside = (u - eye_centre_px[0]) ** 2 + (v - eye_centre_px[1]) ** 2 <= EYE_MASK_RADIUS_PX ** 2
-    dark = inside & (pixels.max(axis=2) < DARK_THRESHOLD)
-    count = int(dark.sum())
-    assert count > 500, f"Pupil not found in the render (only {count} dark pixels)"
-    left, right = float(u[dark].min()) - 0.5, float(u[dark].max()) + 0.5
-    top, bottom = float(v[dark].min()) - 0.5, float(v[dark].max()) + 0.5
-    width, height = right - left, bottom - top
-    assert 28 <= width <= 48 and 28 <= height <= 48, f"Dark region is {width:.0f} x {height:.0f} px, not a single pupil disc"
-    return (left + right) / 2, (top + bottom) / 2
+def as_rows(pixels: np.ndarray) -> list[bytes]:
+    """8-bit RGB rows (top first), as the standard-library pixel checks expect."""
+    return [bytes(row) for row in np.clip(np.rint(pixels * 255.0), 0, 255).astype(np.uint8).reshape(pixels.shape[0], -1)]
 
 
 def test_renders() -> None:
     s = scene()
     reset()
     camera_reference, lighting_reference = camera_state(s), lighting_state(s)
-    eye_centres = {side: project_point(s, bpy.data.objects[f"Eye_{side}"].matrix_world.translation)[:2] for side in ("L", "R")}
     images, measured, predicted = {}, {}, {}
 
     for name, h, v, _ in POSES:
@@ -341,14 +340,20 @@ def test_renders() -> None:
         images[name] = load_pixels(path)
         assert images[name].shape == (1024, 1024, 3)
         predicted[name] = result["pupil_center_2D"]
-        measured[name] = {side: measured_pupil_centre(images[name], eye_centres[side]) for side in ("L", "R")}
+        # Where the renderer draws the textured pupil: same pose and camera, pupils only.
+        measured[name] = render_pupil_mask(RENDERS / f"stage3_{name}_pupil_mask.png")
+        assert camera_state(s) == camera_reference and lighting_state(s) == lighting_reference, f"{name}: mask render changed the scene"
+        rows = as_rows(images[name])
+        for side in ("L", "R"):
+            problem = pupil_contrast_problem(rows, predicted[name][side])
+            assert problem is None, f"{name}: projected Pupil_{side} {problem} in the photoreal render"
         for side in ("L", "R"):
             du = measured[name][side][0] - predicted[name][side][0]
             dv = measured[name][side][1] - predicted[name][side][1]
             assert (du * du + dv * dv) ** 0.5 < MAX_PREDICTION_ERROR_PX, \
                 f"{name}: rendered Pupil_{side} at {measured[name][side]} but calibration predicts {predicted[name][side]}"
-        print(f"RENDER {path.name}: 1024x1024 8-bit RGB PNG, {path.stat().st_size} bytes; pupil measured/predicted "
-              + " ".join(f"{side}=({measured[name][side][0]:.1f}, {measured[name][side][1]:.1f})/({predicted[name][side][0]:.1f}, {predicted[name][side][1]:.1f})" for side in ("L", "R")))
+        print(f"RENDER {path.name}: 1024x1024 8-bit RGB PNG, {path.stat().st_size} bytes; pupil mask/predicted "
+              + " ".join(f"{side}=({measured[name][side][0]:.2f}, {measured[name][side][1]:.2f})/({predicted[name][side][0]:.2f}, {predicted[name][side][1]:.2f})" for side in ("L", "R")))
 
     # Constant camera and lighting: everything away from the eyes is pixel-identical.
     for name, _, _, _ in POSES[1:]:

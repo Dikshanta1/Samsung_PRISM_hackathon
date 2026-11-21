@@ -10,6 +10,7 @@ and no earlier image is reused. The command writes
     renders/frame_00.png ... renders/frame_09.png
     metadata.json                      (official format, one record per render)
     metadata/frame_00.json ... frame_09.json, metadata/official_sequence.json
+    outputs/pupil_masks/frame_00.png ... frame_09.png   (pupil-only renders, same camera)
     outputs/contact_sheet.png
 
 and then checks them with ``tests/test_official_sequence.py``.
@@ -35,6 +36,7 @@ from wrapper.renderer import png_size
 RENDERS = ROOT / "renders"
 METADATA = ROOT / "metadata"
 CONTACT_SHEET = ROOT / "outputs" / "contact_sheet.png"
+PUPIL_MASKS = ROOT / "outputs" / "pupil_masks"
 MANIFEST = METADATA / "official_sequence.json"
 OFFICIAL_METADATA = ROOT / "metadata.json"
 FRAME_COUNT = 10
@@ -52,7 +54,8 @@ def sequence() -> list[tuple[int, float, float, float, str]]:
 
 def remove_previous_outputs() -> None:
     """Delete every earlier frame, record and sheet so none can be mistaken for this run's."""
-    stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), MANIFEST, OFFICIAL_METADATA, CONTACT_SHEET]
+    stale = [*RENDERS.glob("frame_*.png"), *METADATA.glob("frame_*.json"), *PUPIL_MASKS.glob("frame_*.png"),
+             MANIFEST, OFFICIAL_METADATA, CONTACT_SHEET]
     for path in stale:
         path.unlink(missing_ok=True)
 
@@ -81,7 +84,8 @@ def generate() -> Path:
     camera_matrix = None
     for frame, theta, h, v, direction in sequence():
         movement = eyes.move(h, v)
-        path = eyes.render(f"frame_{frame:02d}.png")
+        mask_path = PUPIL_MASKS / f"frame_{frame:02d}.png"
+        path = eyes.render(f"frame_{frame:02d}.png", pupil_mask=mask_path)
         render = eyes.last_render
         if render is None or png_size(path) != (1024, 1024):
             raise RuntimeError(f"Frame {frame:02d} was not a valid 1024 x 1024 PNG")
@@ -110,7 +114,11 @@ def generate() -> Path:
             "camera_calibration": render["camera_calibration"],
             "camera_matrix": render["camera_matrix"],
             "angular_error_degrees": render["angular_error_degrees"],
-            "convergence": render["convergence"],
+            "binocular_alignment": render["binocular_alignment"],
+            # Same pose and camera, only the textured pupils: where the renderer drew them.
+            "pupil_mask": {"image": mask_path.relative_to(ROOT).as_posix(),
+                           "image_sha256": hashlib.sha256(mask_path.read_bytes()).hexdigest(),
+                           "centroid_2D": render["pupil_mask"]["centroid_2D"]},
         }
         if movement["pupil_center_2D"] != render["pupil_center_2D"]:
             raise RuntimeError(f"Frame {frame:02d}: the rendered pose differs from the pose set by move()")

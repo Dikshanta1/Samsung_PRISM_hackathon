@@ -22,7 +22,7 @@ Clockwise is as seen in the image: `h = +1` is image-right and `v = +1` is up.
 
 1. Deletes any earlier `renders/frame_*.png`, `metadata/frame_*.json`, `metadata/official_sequence.json`, `metadata.json` and `outputs/contact_sheet.png`, so no previous image can be reused.
 2. For each `k`, calls `Eyes.move(h, v)` and `Eyes.render()` on the real `scene.blend` and writes `renders/frame_00.png` to `renders/frame_09.png` (1024 × 1024, 8-bit RGB).
-3. Writes `metadata/frame_00.json` to `frame_09.json` and the combined `metadata/official_sequence.json`. Every value is either computed from the formula or reported by the Blender process that rendered the frame: `frame`, `direction`, `theta_radians`, `inputs` (`h`, `v` at full double precision), `image`, world-frame eye rotations (quaternion and XYZ Euler degrees), `pupil_center_2D`, `camera_matrix`, the full `camera_calibration`, `angular_error_degrees` and `convergence`.
+3. Writes `metadata/frame_00.json` to `frame_09.json` and the combined `metadata/official_sequence.json`. Every value is either computed from the formula or reported by the Blender process that rendered the frame: `frame`, `direction`, `theta_radians`, `inputs` (`h`, `v` at full double precision), `image`, world-frame eye rotations (quaternion and XYZ Euler degrees), `pupil_center_2D`, `camera_matrix`, the full `camera_calibration`, `angular_error_degrees` and `binocular_alignment`.
 4. Writes the official `metadata.json` at the project root (see below).
 5. Builds `outputs/contact_sheet.png` (3430 × 1728): the ten frames in order, five per row, each labelled with its frame number, direction, `h` and `v`.
 6. Runs the acceptance check below and exits with an error if any part fails.
@@ -42,7 +42,7 @@ A JSON array with one record per render, in frame order, each with exactly these
 | `pupil_center_2D_L`, `pupil_center_2D_R` | `[x, y]` in pixels: origin at the top-left corner, `x` right, `y` down |
 | `camera_matrix` | 3 × 4 projection matrix `P = K [R | t]`, world metres to pixels; identical in every record |
 
-World axes are `+X` image-right, `+Z` up, and the face looks along `−Y`. A gaze to image-right is therefore a positive `rz`, and a gaze upward a negative `rx` (the eye looks along its local `−Y`). `L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / MakeHuman rig convention. The same values, with more detail, are in `metadata/official_sequence.json`.
+World axes are `+X` image-right, `+Z` up, and the face looks along `−Y`. A gaze to image-right is therefore a positive `rz`, and a gaze upward a negative `rx` (the eye looks along its local `−Y`). `L` is `Eye_L`, the subject's own left eye (world `+X`), which the camera sees on the right of the image; `R` is `Eye_R`, on the left of the image. This follows the Blender / Character Creator rig convention. The same values, with more detail, are in `metadata/official_sequence.json`.
 
 ## Acceptance check
 

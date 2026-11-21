@@ -16,3 +16,13 @@ metadata/*.json
 # Local Blender and editor settings
 .DS_Store
 .vscode/
+
+# Third-party character source (large; see assets/README.md)
+assets/source/
+
+# Built scene: 38 MB, contains the third-party character; rebuild with
+# blender/build_scene.py (it is still shipped inside the submission ZIP)
+/scene.blend
+
+# Hackathon brief (reference only)
+*.pptx

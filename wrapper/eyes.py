@@ -125,12 +125,17 @@ class Eyes:
         self._pose = (0.0, 0.0)
         return state
 
-    def render(self, output_path: str | Path | None = None) -> Path:
+    def render(self, output_path: str | Path | None = None, *, pupil_mask: bool | str | Path = False) -> Path:
         """Render the current pose to a 1024 x 1024 PNG and return its absolute path.
 
         With no argument the image is ``output_dir/eye_render_NNNN.png``. A
         relative path is placed under ``output_dir``; an absolute path is used
         as given. Blender's report for the frame is kept in ``last_render``.
+
+        ``pupil_mask=True`` also writes ``<image>_pupil_mask.png`` beside the
+        image (or pass a path, resolved like ``output_path``): the same view
+        with only the textured pupils, white on black. Its path and the mask
+        centroids are reported in ``last_render["pupil_mask"]``.
         """
         if output_path is None:
             self._render_index += 1
@@ -138,8 +143,15 @@ class Eyes:
         else:
             candidate = Path(output_path).expanduser()
             output = candidate if candidate.is_absolute() else self.output_dir / candidate
+        mask = None
+        if pupil_mask is True:
+            mask = output.with_name(f"{output.stem}_pupil_mask.png")
+        elif pupil_mask:
+            candidate = Path(pupil_mask).expanduser()
+            mask = candidate if candidate.is_absolute() else self.output_dir / candidate
         try:
-            path, details = render_with_details(output, scene=self.scene, timeout=self.timeout, pose=self._pose)
+            path, details = render_with_details(output, scene=self.scene, timeout=self.timeout, pose=self._pose,
+                                                pupil_mask=mask)
         except RenderError as error:
             raise BlenderWorkerError(str(error)) from error
         self.last_render = details

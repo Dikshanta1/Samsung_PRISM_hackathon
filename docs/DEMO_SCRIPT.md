@@ -33,7 +33,7 @@ eyes.reset();     print(eyes.render("centre.png"))
 EOF
 ```
 
-> "The wrapper is ordinary Python. Each call starts Blender in the background, because Blender's API only runs inside Blender. `move` takes normalised inputs from minus one to plus one and aims both eyes at one target 35 centimetres away, so they converge. It returns what Blender measured: the pupil positions in pixels, and an aiming error of zero degrees."
+> "The wrapper is ordinary Python. Each call starts Blender in the background, because Blender's API only runs inside Blender. `move` takes normalised inputs from minus one to plus one and turns both eyes together, by the same angle, toward a target 35 centimetres away. It returns what Blender measured: the pupil positions in pixels, and an aiming error of zero degrees."
 
 Show: `outputs/demo/left.png`, `centre.png`, `right.png` one after another.
 
@@ -71,16 +71,16 @@ python3 metadata/validator.py
 
 Show: `outputs/final_validation_report.json`, the `"passed": true` line and the clean-extract section.
 
-> "The packaging command runs every test, builds the ZIP, then unpacks it into an empty folder and runs everything again. The regenerated frames are byte-identical to the ones shipped. The main limitation is the face: it is a procedural stand-in, not yet a textured MakeHuman head. The rig, calibration, wrapper and metadata are complete and verified."
+> "The packaging command runs every test, builds the ZIP, then unpacks it into an empty folder and runs everything again. The regenerated frames match the ones shipped to within GPU rounding (almost always byte for byte). The face is a photoreal, textured Character Creator head with lids that follow the gaze. The main open item is confirming the character's licence for redistribution."
 
 ## Figures to quote if asked
 
 | Fact | Value |
 | --- | --- |
 | Fixation target | 35 cm from the eye midpoint, ±5 cm |
-| Camera | 40 cm, 40 mm lens, focal length 1137.78 px, principal point (512, 512) |
+| Camera | 40 cm, 70 mm lens, focal length 1991.11 px, principal point (512, 512) |
 | Output | 1024 × 1024 8-bit RGB PNG, EEVEE, constant lighting |
-| Pupil shift at full range | about 16 px |
-| Gaze error (rotation vs target) | under 0.00001° |
-| Metadata vs rendered pupil | at most 0.67 px, mean 0.27 px |
+| Pupil shift at full range | about 12 px (life-size eye, about 8° of rotation) |
+| Gaze error (rotation vs target) | under 0.0001° |
+| Metadata vs rendered pupil (mask render) | at most 0.023 px, mean 0.015 px |
 | Time | about 1.5 s per move, 2 s per render, 35 s for the ten frames |

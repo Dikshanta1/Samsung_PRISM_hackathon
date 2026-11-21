@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from wrapper.blender_runner import blender_executable
 from wrapper.renderer import DEFAULT_SCENE, RenderError, png_size, render, render_with_details
+sys.path.insert(0, str(ROOT / "tests"))
+from test_wrapper import assert_same_image
 
 
 def digest(path: Path) -> str:
@@ -52,14 +54,13 @@ def main() -> None:
     assert isinstance(returned, Path) and returned == output.resolve(), f"render() returned {returned!r}"
     assert png_size(returned) == (1024, 1024), f"Unexpected size {png_size(returned)}"
     assert returned.stat().st_size > 10_000, "Render is implausibly small"
-    first = digest(returned)
 
     # Same pose, same camera, same lighting: a second render must be the same image.
     second_path, details = render_with_details(ROOT / "renders" / "stage3_wrapper_repeat.png")
     assert details["camera_fixed"] is True and details["lighting_constant"] is True
     assert details["resolution_px"] == [1024, 1024]
     assert set(details["pupil_center_2D"]) == {"L", "R"}
-    assert digest(second_path) == first, "Two renders of the same pose differ"
+    assert_same_image(second_path, returned, "Two renders of the same pose differ")
     assert digest(DEFAULT_SCENE) == scene_before, "Rendering modified scene.blend"
     print(f"RENDER_OK path={returned} size=1024x1024 repeatable=true scene_untouched=true")
 
@@ -78,7 +79,7 @@ def main() -> None:
 
     # The timeout case removes the stale output before starting; restore a good image.
     render(output)
-    assert digest(output) == first
+    assert_same_image(output, second_path, "The restored render differs from the first")
     assert digest(DEFAULT_SCENE) == scene_before, "A failed render modified scene.blend"
     print("RENDERER_TEST_OK")
 

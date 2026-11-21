@@ -2,25 +2,31 @@
 
 from __future__ import annotations
 
-from math import sqrt
-import bmesh
-from mathutils import Matrix, Vector
 import bpy
+from mathutils import Matrix, Vector
 
 
 # The face looks along world -Y, so the subject's own left is world +X. "L" and
-# "R" follow the Blender / MakeHuman rig convention: they are the subject's
-# anatomical left and right eyes. Seen from the camera, Eye_L is therefore on
-# the right of the image and Eye_R on the left.
+# "R" follow the Blender / Character Creator rig convention: they are the
+# subject's anatomical left and right eyes. Seen from the camera, Eye_L is
+# therefore on the right of the image and Eye_R on the left.
+#
+# These are the eyeball rotation centres of the imported Character Creator head
+# (sphere fitted to the sclera; 66.84 mm apart, 17.6 mm sclera radius). The
+# builder moves the whole character so the fitted centres land on these values
+# and refuses to build if they are more than ``CENTRE_TOLERANCE_M`` away.
+EYE_MIDPOINT = Vector((0.0, -0.0265, 1.7216))
+HALF_INTEROCULAR_M = 0.03342
 EYE_CENTERS = {
-    "L": Vector((0.066, -0.133, 0.055)),
-    "R": Vector((-0.066, -0.133, 0.055)),
+    "L": EYE_MIDPOINT + Vector((HALF_INTEROCULAR_M, 0.0, 0.0)),
+    "R": EYE_MIDPOINT - Vector((HALF_INTEROCULAR_M, 0.0, 0.0)),
 }
+CENTRE_TOLERANCE_M = 3e-4
+BONE_LENGTH_M = 0.02
 
 
-def _smooth(obj: bpy.types.Object) -> None:
-    for polygon in obj.data.polygons:
-        polygon.use_smooth = True
+class PupilLandmarkError(RuntimeError):
+    """A Pupil_* landmark is missing or malformed."""
 
 
 def _parent_to_bone(obj: bpy.types.Object, armature: bpy.types.Object, bone_name: str) -> None:
@@ -35,6 +41,7 @@ def _parent_to_bone(obj: bpy.types.Object, armature: bpy.types.Object, bone_name
 
 
 def create_eye_armature() -> bpy.types.Object:
+    """Two non-deforming bones whose heads are the eyeball rotation centres."""
     bpy.ops.object.armature_add(enter_editmode=True, location=(0, 0, 0))
     armature = bpy.context.active_object
     armature.name = "EyeRig"
@@ -45,7 +52,7 @@ def create_eye_armature() -> bpy.types.Object:
     for side, center in EYE_CENTERS.items():
         bone = edit_bones.new(f"EyeBone_{side}")
         bone.head = center
-        bone.tail = center + Vector((0, 0, 0.045))
+        bone.tail = center + Vector((0, 0, BONE_LENGTH_M))
         bone.use_deform = False
 
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -53,57 +60,49 @@ def create_eye_armature() -> bpy.types.Object:
     return armature
 
 
-def create_eye_geometry(
-    side: str,
-    armature: bpy.types.Object,
-    sclera_material: bpy.types.Material,
-    iris_material: bpy.types.Material,
-    pupil_material: bpy.types.Material,
-) -> bpy.types.Object:
-    """Create a true sclera sphere with iris/pupil meshes parented to it."""
+def attach_eye(side: str, mesh: bpy.types.Mesh, armature: bpy.types.Object, scene: bpy.types.Scene) -> bpy.types.Object:
+    """Make ``Eye_<side>`` from a world-space eyeball mesh centred on ``EYE_CENTERS[side]``.
+
+    The mesh is re-expressed about the rotation centre, so the object origin is
+    the pivot, its rest rotation is identity, and it is a rigid child of
+    ``EyeBone_<side>``: posing the bone can only rotate it about its centre.
+    """
     center = EYE_CENTERS[side]
-    bpy.ops.mesh.primitive_uv_sphere_add(segments=48, ring_count=24, radius=0.037, location=center)
-    eye = bpy.context.active_object
-    eye.name = f"Eye_{side}"
-    eye.data.materials.append(sclera_material)
-    _smooth(eye)
+    mesh.transform(Matrix.Translation(-center))
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    eye = bpy.data.objects.new(f"Eye_{side}", mesh)
+    scene.collection.objects.link(eye)
+    eye.location = center
+    bpy.context.view_layer.update()
     _parent_to_bone(eye, armature, f"EyeBone_{side}")
-
-    # Spherical-cap shells conform to the 37 mm sclera surface without rim overhang,
-    # folded edge normals, inter-mesh intersection, or cast drop shadows.
-    for label, radius, depth, r_shell, material in (
-        ("Iris", 0.019, 0.0020, 0.03730, iris_material),
-        ("Pupil", 0.0072, 0.0010, 0.03755, pupil_material),
-    ):
-        y_origin = sqrt(r_shell * r_shell - radius * radius) - depth
-        bpy.ops.mesh.primitive_uv_sphere_add(
-            segments=48,
-            ring_count=24,
-            radius=1,
-            location=center + Vector((0, -y_origin, 0)),
-        )
-        feature = bpy.context.active_object
-        feature.name = f"{label}_{side}"
-        feature.scale = (radius, depth, radius)
-        bm = bmesh.new()
-        bm.from_mesh(feature.data)
-        bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y > 1e-4], context="VERTS")
-        for vertex in bm.verts:
-            lx, lz = vertex.co.x, vertex.co.z
-            unit_r_sq = min(1.0, lx * lx + lz * lz)
-            rho_sq = (radius ** 2) * unit_r_sq
-            dy = -sqrt(max(0.0, r_shell * r_shell - rho_sq))
-            vertex.co.y = (dy + y_origin) / depth
-        bm.to_mesh(feature.data)
-        bm.free()
-        feature.data.update()
-        _smooth(feature)
-        feature.visible_shadow = False
-        feature.data.materials.append(material)
-        feature.parent = eye
-        feature.matrix_parent_inverse = eye.matrix_world.inverted()
-
     return eye
+
+
+def create_pupil_landmark(side: str, eye: bpy.types.Object, centre_world: Vector, ring_world: list[Vector],
+                          scene: bpy.types.Scene) -> bpy.types.Object:
+    """Invisible open cap on the iris whose margin is the pupil edge painted in the texture.
+
+    ``pupil_centre_local`` takes the pupil centre as the mean of
+    this cap's open-margin vertices, so the landmark follows the eyeball
+    exactly and never appears in a render.
+    """
+    inverse = eye.matrix_world.inverted()
+    mesh = bpy.data.meshes.new(f"Pupil_{side}")
+    vertices = [inverse @ centre_world] + [inverse @ point for point in ring_world]
+    count = len(ring_world)
+    faces = [(0, 1 + k, 1 + (k + 1) % count) for k in range(count)]
+    mesh.from_pydata([tuple(v) for v in vertices], [], faces)
+    mesh.update()
+    pupil = bpy.data.objects.new(f"Pupil_{side}", mesh)
+    scene.collection.objects.link(pupil)
+    pupil.parent = eye
+    pupil.matrix_parent_inverse.identity()
+    pupil.hide_render = True
+    pupil.visible_shadow = False
+    pupil.display_type = "WIRE"
+    pupil.show_in_front = True
+    return pupil
 
 
 def set_eye_rotation(armature: bpy.types.Object, side: str, pitch: float, yaw: float) -> None:
@@ -127,14 +126,42 @@ def set_eye_rotation(armature: bpy.types.Object, side: str, pitch: float, yaw: f
 def zero_pose(armature: bpy.types.Object) -> None:
     """Zero both bone rotations: parallel, straight-ahead gaze.
 
-    This is the rig's rest pose, not the calibrated neutral. The calibrated
-    neutral converges both eyes on the fixation target; use
-    ``calibration.reset()`` for that.
+    This equals the calibrated neutral (both eyes straight ahead), but tests
+    that need the calibrated pose should call ``calibration.reset()``.
     """
     for side in EYE_CENTERS:
         set_eye_rotation(armature, side, 0.0, 0.0)
 
 
 def world_eye_center(eye: bpy.types.Object) -> Vector:
-    """The sphere origin is the physical rotation centre by construction."""
+    """The eyeball object's origin is its physical rotation centre by construction."""
     return eye.matrix_world.translation.copy()
+
+
+def pupil_centre_local(pupil: bpy.types.Object) -> Vector:
+    """Centre of the pupil aperture in the pupil object's own coordinates.
+
+    The pupil landmark is an open cap lying on the iris; its open edge is the
+    pupil margin painted in the iris texture, mapped onto the eyeball through
+    its UVs when the scene is built. The landmark is the mean of the vertices on
+    that boundary (edges used by exactly one face), read from the mesh, so it
+    follows the geometry if the scene is rebuilt.
+    """
+    mesh = pupil.data
+    uses: dict[tuple[int, int], int] = {}
+    for polygon in mesh.polygons:
+        for key in polygon.edge_keys:
+            uses[key] = uses.get(key, 0) + 1
+    rim = sorted({index for key, count in uses.items() if count == 1 for index in key})
+    if len(rim) < 3:
+        raise PupilLandmarkError(f"{pupil.name} has no open margin to define the pupil centre")
+    centre = Vector((0.0, 0.0, 0.0))
+    for index in rim:
+        centre += mesh.vertices[index].co
+    return centre / len(rim)
+
+
+def pupil_centre_world(side: str) -> Vector:
+    """World position of the centre of the posed pupil's aperture."""
+    pupil = bpy.data.objects[f"Pupil_{side}"]
+    return pupil.matrix_world @ pupil_centre_local(pupil)

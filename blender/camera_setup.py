@@ -35,10 +35,11 @@ from mathutils import Matrix, Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from calibration import CAMERA_DISTANCE_M, FACE_FORWARD_WORLD, eye_midpoint
+from eye_rig import PupilLandmarkError, pupil_centre_local, pupil_centre_world  # re-exported
 
 CAMERA_NAME = "Camera"
 RESOLUTION_PX = 1024
-LENS_MM = 40.0
+LENS_MM = 70.0
 SENSOR_WIDTH_MM = 36.0
 SENSOR_HEIGHT_MM = 24.0
 SENSOR_FIT = "HORIZONTAL"
@@ -288,34 +289,6 @@ def project_point(scene: bpy.types.Scene, point: Vector, camera: bpy.types.Objec
     if w <= 0.0:
         raise ValueError(f"Point {tuple(point)} is behind the camera (depth {w} m)")
     return u / w, v / w, w
-
-
-def pupil_centre_local(pupil: bpy.types.Object) -> Vector:
-    """Centre of the pupil aperture in the pupil object's own coordinates.
-
-    The pupil mesh is an open cap lying on the eyeball; its open edge is the
-    circular pupil margin the camera sees. The landmark is the mean of the
-    vertices on that boundary (edges used by exactly one face), read from the
-    mesh, so it follows the geometry if the pupil is rebuilt.
-    """
-    mesh = pupil.data
-    uses: dict[tuple[int, int], int] = {}
-    for polygon in mesh.polygons:
-        for key in polygon.edge_keys:
-            uses[key] = uses.get(key, 0) + 1
-    rim = sorted({index for key, count in uses.items() if count == 1 for index in key})
-    if len(rim) < 3:
-        raise CameraConfigurationError(f"{pupil.name} has no open margin to define the pupil centre")
-    centre = Vector((0.0, 0.0, 0.0))
-    for index in rim:
-        centre += mesh.vertices[index].co
-    return centre / len(rim)
-
-
-def pupil_centre_world(side: str) -> Vector:
-    """World position of the centre of the posed pupil's aperture."""
-    pupil = bpy.data.objects[f"Pupil_{side}"]
-    return pupil.matrix_world @ pupil_centre_local(pupil)
 
 
 def pupil_centres_px(scene: bpy.types.Scene) -> dict[str, list[float]]:

@@ -1,22 +1,45 @@
 # Eye Movement Calibration
 
-The eye midpoint is `(0, -0.133, 0.055)` m. Forward is world `-Y`, making the neutral target `(0, -0.483, 0.055)`: exactly 0.350 m forward.
+The eye midpoint (the cyclopean eye, halfway between the two eyeball rotation centres) is `(0, -0.0265, 1.7216)` m. Forward is world `-Y`, so the neutral target is `(0, -0.3765, 1.7216)`: exactly 0.350 m forward.
 
 `move(h, v)` requires both normalized inputs in `[-1, +1]` and uses this explicit, bounded mapping:
 
 ```text
-target.x = 0.050 * h
-target.y = -0.483
-target.z = 0.055 + 0.050 * v
+target = eye_midpoint + (0.050 * h, -0.350, 0.050 * v)
 ```
 
-This maps horizontal and vertical input to lateral and vertical target offsets of ±5 cm; it does not use arbitrary eye angles. For each eye, `direction = normalize(target - eye_centre)`. `direction.to_track_quat("-Y", "Z")` supplies the Blender world quaternion for the model's local `-Y` optical axis. That quaternion is converted to each bone's rest coordinate space and applied as an absolute pose-bone basis matrix.
+## Coordinated gaze
 
-`reset()` calls `move(0, 0)`, recalculating the neutral pose directly. It never reverses an incremental rotation.
+The two eyes always move together. There is one gaze direction for the whole face:
 
-The calibrated neutral is therefore the converged pose (each eye turned 10.68° inward), and `build_scene.py` saves `scene.blend` in it. `eye_rig.zero_pose()` is different: it zeroes the bone rotations for parallel, straight-ahead gaze and is only used by rig-level tests.
+```text
+direction = normalize(target - eye_midpoint)
+```
 
-Eye centres are read from the rig (`rig.matrix_world @ bone.head_local`), not from constants, and the pose is written as rotation only. Angular error and convergence are measured from the posed scene: the gaze ray runs from each eyeball's world centre through its pupil's world centre, and `convergence` reports how far the two rays miss each other and how far their meeting point is from the target.
+Both eyes are rotated about their own centres so that their optical axes are parallel to it. `direction.to_track_quat("-Y", "Z")` gives the world rotation (local `-Y` is the optical axis, no roll). The same quaternion is applied to `EyeBone_L` and `EyeBone_R`, each converted to its bone's rest space and written as an absolute pose-bone basis.
+
+| Input | Both eyes |
+| --- | --- |
+| `(0, 0)` (neutral) | straight ahead, rotation `(0, 0, 0)` |
+| `(+1, 0)` | right by `atan(5/35)` = 8.13° |
+| `(-1, 0)` | left by 8.13° |
+| `(0, +1)` | up by 8.13° |
+| `(0, -1)` | down by 8.13° |
+| diagonals | the matching combination, e.g. `(0.951, 0.309)`: 7.74° right and 2.50° up |
+
+So the eyes never cross or drift apart, and each input moves both pupils by the same amount (about 12 px at full range).
+
+Why not converge on the target? An earlier version aimed each eye separately at the 35 cm target, which is near-field vergence. It made the neutral pose cross-eyed (each eye turned 5.45° inward). For a sideways target it also made one eye turn 13° while the other stayed almost straight (2.3°): geometrically correct for a target that close, but it reads as uncoordinated eyes. The target still defines the gaze direction exactly; only the vergence is removed.
+
+## Lids
+
+The eyelids follow the gaze (`blender/eyelids.py`): looking up raises the upper lid, looking down lowers it. Only the lids move; the eyeballs and pupils are unaffected.
+
+## Reset and measurement
+
+`reset()` calls `move(0, 0)`, recalculating the neutral pose directly. It never reverses an incremental rotation, and `build_scene.py` saves `scene.blend` in this pose.
+
+Eye centres are read from the rig (`rig.matrix_world @ bone.head_local`), not from constants, and the pose is written as rotation only. Accuracy is measured from the posed scene. The gaze ray runs from each eyeball's world centre through its pupil landmark. `angular_error_degrees` is the angle between that ray and the shared gaze direction. `binocular_alignment` reports the angle between the two eyes' rays and the rotation difference between the eyeballs; both are 0 to float precision.
 
 The camera sits 0.400 m forward of the eye midpoint with its optical axis through that midpoint, so the midpoint projects to pixel (512, 512).
 

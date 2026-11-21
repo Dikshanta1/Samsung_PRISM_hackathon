@@ -14,17 +14,17 @@ The **reference point is the eye midpoint**: the midpoint of the two eyeball rot
 
 "Forward" is the direction the face looks, world `-Y`. The two distances are separate quantities measured from the same point: the 35 cm target belongs to the gaze model (`blender/calibration.py`), the 40 cm camera to this document. The neutral target therefore sits 5 cm in front of the camera, on its optical axis. The target is an empty and never appears in renders.
 
-The 40 cm is measured to the camera's optical centre (the Blender camera object's origin), not to a lens surface. The front of each eyeball is 37 mm nearer the camera than the reference point.
+The 40 cm is measured to the camera's optical centre (the Blender camera object's origin), not to a lens surface. The front of each cornea is about 18.5 mm nearer the camera than the reference point.
 
 ## Fixed camera configuration
 
 | Setting | Value |
 | --- | --- |
 | Projection | Perspective |
-| Focal length | 40 mm |
+| Focal length | 70 mm |
 | Sensor | 36 mm × 24 mm, horizontal fit |
 | Lens shift | 0, 0 |
-| Field of view | 48.46° horizontal and vertical |
+| Field of view | 28.84° horizontal and vertical (about 0.21 m across at the face) |
 | Clipping | 0.01 m to 10 m |
 | Depth of field | Off |
 | Resolution | 1024 × 1024 px, 100 %, square pixels |
@@ -43,36 +43,36 @@ The camera's location, rotation and scale channels are locked, and it has no par
 
 **Camera coordinates** (computer-vision style): `+X` right, `+Y` down, `+Z` forward along the optical axis. A world point maps as `x_cam = R · x_world + t`, then `[u, v, 1]ᵀ ∼ K · x_cam`. Blender's own camera frame is `+Y` up, `−Z` forward; the two differ by `diag(1, −1, −1)`.
 
-Image-right is world `+X`, which is the subject's left. `Eye_L` is the subject's own left eye, at world `+X`, so it appears on the right of the image; `Eye_R` is at world `−X`, on the left of the image. This follows the Blender / MakeHuman rig convention.
+Image-right is world `+X`, which is the subject's left. `Eye_L` is the subject's own left eye, at world `+X`, so it appears on the right of the image; `Eye_R` is at world `−X`, on the left of the image. This follows the Blender / Character Creator rig convention.
 
 ## Calibration
 
-Intrinsic matrix, from `fx = lens · width / sensor_width = 40 · 1024 / 36`:
+Intrinsic matrix, from `fx = lens · width / sensor_width = 70 · 1024 / 36`:
 
 ```text
-K = | 1137.7778     0      512 |
-    |     0     1137.7778  512 |
+K = | 1991.1111     0      512 |
+    |     0     1991.1111  512 |
     |     0         0        1 |
 ```
 
-At the eye plane (0.400 m) this is 2844.4 px per metre, or 2.84 px per millimetre.
+At the eye plane (0.400 m) this is 4977.8 px per metre, or 4.98 px per millimetre.
 
 World-to-camera rotation and translation:
 
 ```text
-R = | 1  0   0 |        t = | 0     |
-    | 0  0  -1 |            | 0.055 |
-    | 0  1   0 |            | 0.533 |
+R = | 1  0   0 |        t = | 0      |
+    | 0  0  -1 |            | 1.7216 |
+    | 0  1   0 |            | 0.4265 |
 ```
 
-The camera centre is `C = −Rᵀ t = (0, −0.533, 0.055)`.
+The camera centre is `C = −Rᵀ t = (0, −0.4265, 1.7216)`: the character stands on the ground plane, so the face is 1.72 m up.
 
 Projection matrix `P = K [R | t]`, mapping homogeneous world metres to pixels:
 
 ```text
-P = | 1137.7778   512        0       272.896 |
-    |     0       512   -1137.7778   335.474 |
-    |     0         1        0         0.533 |
+P = | 1991.1111   512        0        218.368 |
+    |     0       512   -1991.1111   3646.265 |
+    |     0         1        0          0.4265 |
 ```
 
 The stored camera rotation is 90° about X held in 32-bit floats, so the JSON file shows entries of about 1.6e-7 where zeros are printed here.
@@ -85,11 +85,13 @@ Projected with `P` and checked against hand-computed pinhole values (`u = 512 + 
 | --- | --- | --- | --- |
 | Eye midpoint | 512.000 | 512.000 | 0.400 |
 | Neutral fixation target | 512.000 | 512.000 | 0.050 |
-| `Eye_L` centre | 699.733 | 512.000 | 0.400 |
-| `Eye_R` centre | 324.267 | 512.000 | 0.400 |
-| 5 cm right of midpoint | 654.222 | 512.000 | 0.400 |
-| 5 cm above midpoint | 512.000 | 369.778 | 0.400 |
-| 3 cm left, 2 cm below, 10 cm nearer | 398.222 | 587.852 | 0.300 |
+| `Eye_L` centre | 678.358 | 512.000 | 0.400 |
+| `Eye_R` centre | 345.642 | 512.000 | 0.400 |
+| 5 cm right of midpoint | 760.889 | 512.000 | 0.400 |
+| 5 cm above midpoint | 512.000 | 263.111 | 0.400 |
+| 3 cm left, 2 cm below, 10 cm nearer | 312.889 | 644.741 | 0.300 |
+
+Agreement is required to 1 µm of world position (`fx · 1e-6 / depth` pixels): Blender stores object matrices in 32-bit floats, and at 1.72 m one float step is about 0.12 µm.
 
 ### Agreement with Blender
 
@@ -97,25 +99,25 @@ Projected with `P` and checked against hand-computed pinhole values (`u = 512 + 
 
 | Blender path | Largest difference |
 | --- | --- |
-| `bpy_extras.object_utils.world_to_camera_view` | 4.4e-4 px |
-| `Object.calc_matrix_camera` (Blender's projection matrix) | 2.7e-4 px |
+| `bpy_extras.object_utils.world_to_camera_view` | 0.10 µm (at most 2.0e-3 px) |
+| `Object.calc_matrix_camera` (Blender's projection matrix) | 0.11 µm |
 
 The focal lengths and principal point in `K` are also checked directly against the entries of Blender's projection matrix. To confirm the derivation is general rather than fitted to this camera, the same code is checked on a temporary probe camera with other lenses, sensor fits, lens shifts, poses and non-square resolutions (largest difference 4.3e-4 px); the probe is deleted afterwards.
 
 ### 2D pupil centres
 
-`pupil_centres_px()` projects the centre of each pupil's aperture: the mean of the vertices on the open margin of the pupil cap mesh, read from the mesh. In the five test renders the pupil centre measured from the pixels is within 0.7 px of this prediction. 
+`pupil_centres_px()` projects the centre of each pupil's aperture: the mean of the vertices on the open margin of the invisible `Pupil_*` landmark, which the build maps from the iris texture's pupil margin onto the eyeball through its UVs. To check it against the renderer, `blender/pupil_mask.py` re-renders the same pose through the same camera with only the textured pupils, white on black. In the five test renders the mask centroids are within 0.03 px of the prediction.
 
 ## Lighting
 
 `blender/lighting_setup.py` defines lighting that does not depend on the eye pose:
 
-| Light | Type | Position (m) | Power | Size |
+| Light | Type | Position relative to the eye midpoint (m) | Power | Size |
 | --- | --- | --- | --- | --- |
-| `KeyLight` | Area, disk | `(-0.32, -0.62, 0.38)` | 5 W | 0.30 m |
-| `FillLight` | Area, disk | `(0.34, -0.55, 0.12)` | 2 W | 0.30 m |
+| `KeyLight` | Area, disk | `(-0.36, -0.42, +0.30)` | 5 W | 0.20 m |
+| `FillLight` | Area, disk | `(+0.40, -0.36, 0.00)` | 2 W | 0.20 m |
 
-Both aim at `(0, -0.10, 0.04)` and are transform-locked. The world is a uniform `(0.025, 0.025, 0.025)` background. Renders use EEVEE with 64 samples and shadows, the Standard view transform, no look, exposure 0 and gamma 1. `verify_lighting()` rejects any deviation, and the full lighting state is compared before and after each render.
+Both aim 2 cm below the eye midpoint and are transform-locked. Both sit about 48° off the camera axis, so their reflections in the eyes (the catchlights) land about 7 mm from the corneal apex. The pupil never travels more than 2.5 mm (8.13° at full range), so a catchlight never covers it. The world is a uniform `(0.025, 0.025, 0.025)` background. Renders use EEVEE with 64 samples and shadows, the Standard view transform, no look, exposure 0 and gamma 1. `verify_lighting()` rejects any deviation, and the full lighting state is compared before and after each render.
 
 ## Rendering
 
@@ -149,16 +151,16 @@ python3 tests/test_renderer.py
 
 - a valid 8-bit RGB PNG of 1024 × 1024;
 - camera state and lighting state identical to the first frame;
-- background, forehead, mouth and chin regions pixel-identical to the centre render;
-- the pupil, located in the rendered pixels, within 1.5 px of the projected centre.
+- background, forehead, mouth and chin regions within 2/255 of the centre render;
+- the pupil in the pupil-mask render within 0.25 px of the projected centre, and a dark pupil at that point in the photoreal render.
 
 Measured pupil shifts relative to the centre render, in pixels `(Δu, Δv)`:
 
 | Pose | Input `(h, v)` | `Eye_L` | `Eye_R` |
 | --- | --- | --- | --- |
-| Left | `(-1, 0)` | `(-15.5, 0.0)` | `(-16.0, 0.0)` |
-| Right | `(+1, 0)` | `(+16.0, 0.0)` | `(+15.5, 0.0)` |
-| Up | `(0, +1)` | `(0.0, -16.0)` | `(0.0, -16.0)` |
-| Down | `(0, -1)` | `(0.0, +16.0)` | `(0.0, +16.0)` |
+| Left | `(-1, 0)` | `(-11.7, 0.0)` | `(-12.1, 0.0)` |
+| Right | `(+1, 0)` | `(+12.1, 0.0)` | `(+11.7, 0.0)` |
+| Up | `(0, +1)` | `(0.0, -11.9)` | `(0.0, -11.9)` |
+| Down | `(0, -1)` | `(0.0, +11.9)` | `(0.0, +11.9)` |
 
-`test_renderer.py` checks that `render()` returns the path of a 1024 × 1024 PNG, that two renders of the same pose are byte-identical, that `scene.blend` is unchanged, and that each failure above is reported.
+`test_renderer.py` checks that `render()` returns the path of a 1024 × 1024 PNG, that two renders of the same pose match within GPU rounding, that `scene.blend` is unchanged, and that each failure above is reported.

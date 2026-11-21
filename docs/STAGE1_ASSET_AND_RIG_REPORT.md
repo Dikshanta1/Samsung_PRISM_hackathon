@@ -1,3 +1,5 @@
+> **Superseded.** This report describes the original procedural stand-in. The scene now uses a textured Character Creator 3 head; see README §3 and §15.
+
 # Stage 1 Asset and Rig Report
 
 ## Asset investigation and fallback

@@ -4,7 +4,7 @@ Samsung PRISM Hackathon 2026, Track 1.
 
 ## 1. Project overview
 
-A Blender scene with a face and two independently rigged eyeballs, driven from ordinary Python:
+A Blender scene with a textured, photoreal human head (a Character Creator 3 character) and two independently rigged eyeballs, driven from ordinary Python:
 
 ```python
 from wrapper.eyes import Eyes
@@ -15,7 +15,7 @@ eyes.render()        # 1024 x 1024 PNG through a locked, calibrated camera
 eyes.reset()
 ```
 
-The bundle contains the scene (`scene.blend`), the wrapper (`wrapper/eyes.py`), the ten official clockwise renders (`renders/`), their ground-truth metadata (`metadata.json`), and the sources and tests that regenerate and verify all of it.
+The bundle contains the scene (`scene.blend`), the wrapper (`wrapper/eyes.py`), the ten official clockwise renders (`renders/`), their ground-truth metadata (`metadata.json`), a pupil-mask render per frame (`outputs/pupil_masks/`), and the sources and tests that regenerate and verify all of it.
 
 ## 2. Problem statement
 
@@ -39,15 +39,21 @@ wrapper/blender_runner.py  finds Blender   -->  blender/calibration.py      h, v
 scripts/generate_official_sequence.py           blender/camera_setup.py     locked camera, K, R, t, P
 metadata/metadata_generator.py                  blender/lighting_setup.py   constant lighting
 metadata/validator.py                           blender/render_frame.py     guarded still render
-scripts/package_submission.py                   blender/eye_rig.py, build_scene.py   build scene.blend
+scripts/package_submission.py                   blender/pupil_mask.py       pupil-only render for verification
+metadata/pupil_pixels.py  pixel checks           blender/eyelids.py          lids follow the gaze
+                                                blender/character_asset.py  import + fix the CC3 head
+                                                blender/eye_rig.py, build_scene.py   build scene.blend
 ```
 
 - `bpy` only runs inside Blender, so every wrapper call starts Blender in background mode on `scene.blend`, runs `scripts/blender_worker.py`, and reads back one JSON line.
 - The current `(h, v)` lives in the `Eyes` object and is sent as an absolute pose each time. Movements cannot accumulate, and **`scene.blend` is never saved**, so the neutral pose, camera and lighting in it cannot be altered by use.
-- `move(h, v)` places the fixation target at eye midpoint + 0.35 m forward + 0.05 m × `(h, v)` and turns each eye about its own centre to look at it, so the eyes converge.
+- `move(h, v)` places the fixation target at eye midpoint + 0.35 m forward + 0.05 m × `(h, v)`. Both eyes turn **together, by the same rotation**, so their optical axes are parallel to the line from the eye midpoint to the target. At `(0, 0)` both look straight ahead; at `(1, 0)` both turn 8.13° right. The eyes never cross or move independently (see `docs/EYE_MOVEMENT.md`).
 - Before and after every command the worker verifies the camera and lighting against the locked configuration and refuses to continue if anything differs.
+- **The head** is the Character Creator rig `FaceRig` (skin, lashes, brows, hair, beard, teeth). Its two eyeballs are baked out of the CC3 eye mesh into rigid objects `Eye_L` / `Eye_R`. Each pivots on the centre of a sphere fitted to its sclera, and its optical axis points at the pupil painted in the iris texture. The eyeballs are children of `EyeBone_L` / `EyeBone_R` in `EyeRig`, which rides on the head bone. Rotating a bone can only turn its eye about its centre.
+- **Pupil ground truth.** The pupil is painted in the texture, so the build maps the texture's pupil margin through the mesh UVs onto the eyeball as an invisible landmark (`Pupil_L` / `Pupil_R`, never rendered). Its centre is projected through the camera for `pupil_center_2D`. To check this against the renderer, each official frame also has a *pupil-mask render*: the same pose and camera with only the textured pupils, white on black. The mask centroids agree with the metadata to within 0.03 px.
+- **Lid follow.** The upper and lower lids track vertical and horizontal gaze through Character Creator's eye-look shape keys (`blender/eyelids.py`). Only lids move; eyeball rotations and pupil positions are unaffected.
 
-Coordinates: metres; world `+X` is image-right, `+Z` is up, the face looks along `−Y`. `Eye_L` is the subject's own left eye (world `+X`, right side of the image).
+Coordinates: metres; world `+X` is image-right, `+Z` is up, the face looks along `−Y`; the character stands on the ground plane, so the eye midpoint is at (0, −0.0265, 1.7216). `Eye_L` is the subject's own left eye (world `+X`, right side of the image).
 
 ## 4. Technology stack
 
@@ -85,13 +91,15 @@ Double-click `scene.blend`, or use File > Open in Blender, or:
 /Applications/Blender.app/Contents/MacOS/Blender scene.blend
 ```
 
-Contents: `EyeRig` (armature with `EyeBone_L`, `EyeBone_R`), `Eye_L` / `Eye_R` with child `Iris_*` and `Pupil_*`, `HumanHead` and facial features, `Camera` (locked), `KeyLight`, `FillLight`, and the `FixationTarget` empty. It is saved in the neutral pose. Press Numpad 0 for the camera view; rotate a bone in Pose Mode to move an eye by hand.
+Contents: `FaceRig` (the Character Creator skeleton) with the textured body, hair, brows, beard, lashes, teeth and eye-occlusion meshes; `EyeRig` (armature with `EyeBone_L`, `EyeBone_R`, parented to the head bone); `Eye_L` / `Eye_R` (eyeball and cornea) with the hidden landmark `Pupil_*`; `Camera` (locked); `KeyLight`, `FillLight`; and the `FixationTarget` empty. Every texture is packed, so the file is self-contained (about 38 MB). It is saved in the neutral pose. Press Numpad 0 for the camera view; rotate a bone in Pose Mode to move an eye by hand.
 
-To rebuild it from code:
+To rebuild it from code you need the character source `Hassan+V1.blend`, which is not in the bundle (see §15). Put it at `assets/source/Hassan+V1.blend`, or point `TRACK1_CHARACTER_BLEND` at it, then:
 
 ```bash
 /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup --python blender/build_scene.py -- renders
 ```
+
+The build appends only the metre-scale character and replaces the materials whose maps were missing from the source with clean PBR node trees. It bakes and fits the eyeballs, keeps only the eye-related shape keys, packs the textures and saves `scene.blend`. It takes about 10 seconds.
 
 ## 8. How to use eyes.move()
 
@@ -101,7 +109,7 @@ eyes = Eyes()                 # optional: Eyes(output_dir="my_folder")
 state = eyes.move(-1, 0.5)    # h, v in [-1, +1]
 ```
 
-- `h = +1` looks image-right, `h = −1` image-left, `v = +1` up, `v = −1` down. Full range is ±5 cm at the 35 cm target plane.
+- `h = +1` looks image-right, `h = −1` image-left, `v = +1` up, `v = −1` down. Full range is ±5 cm at the 35 cm target plane, which turns each eye by about 8° and moves each pupil by about 12 px in the image.
 - Each call sets the pose outright; it does not add to the previous one.
 - Values outside `[-1, +1]`, NaN, infinities and non-numbers raise `ValueError` before Blender starts.
 - Returns what Blender measured: `inputs`, `fixation_target_world_m`, `angular_error_degrees`, `eye_rotation_euler_xyz_degrees`, `pupil_center_2D`, `camera_matrix` and more.
@@ -124,7 +132,7 @@ path = eyes.render("left.png")            # <output_dir>/left.png
 path = eyes.render("/tmp/run/left.png")   # exactly this path
 ```
 
-Renders the current pose to a 1024 × 1024 8-bit RGB PNG and returns its absolute `pathlib.Path`. Missing folders are created. Blender's measurements for that frame are in `eyes.last_render`. Any failure (Blender missing, wrong scene, changed camera or lighting, timeout, invalid output) raises `BlenderWorkerError` with the reason.
+Renders the current pose to a 1024 × 1024 8-bit RGB PNG and returns its absolute `pathlib.Path`. Missing folders are created. `eyes.render(pupil_mask=True)` also writes `<name>_pupil_mask.png`, the same view with only the pupils, white on black; you can also pass a path. Blender's measurements for that frame are in `eyes.last_render`. Any failure (Blender missing, wrong scene, changed camera or lighting, timeout, invalid output) raises `BlenderWorkerError` with the reason.
 
 Full reference: `docs/WRAPPER_API.md`.
 
@@ -182,19 +190,21 @@ Each prints a line ending in `_OK` on success and exits non-zero on failure.
 
 ## 14. Known limitations
 
-- **The face is a procedural stand-in.** It is built from primitives with plain materials, not a textured MakeHuman / GNM / FLAME head. MPFB could not be installed because Blender's online access was disabled on the build machine.
-- **The head is about twice human size** (132 mm between eye centres, 37 mm eyeball radius). Neutral vergence is therefore 10.68° per eye, and a full-range move shifts each pupil by about 16 px.
-- **No eyelids, lashes or tear film.**
-- **Tested only with Blender 5.3.0 on macOS (Apple Silicon).** Renders are byte-identical between runs there; other versions or GPUs may differ slightly.
-- **Speed.** Each wrapper call starts a new Blender process: about 1.5 s per move and 2 s per render.
+- **Third-party character.** The head comes from a Character Creator 3 export (`Hassan+V1.blend`), not from one of the open assets the brief lists (MakeHuman / MPFB, GNM, FLAME). See §15 before redistributing.
+- **Reconstructed materials.** The source file referenced about a hundred auxiliary maps (AO, SSS, micro-normal, sclera) that are not in it. Those materials were rebuilt from the maps that are embedded (diffuse, normal, opacity). The iris brightness and white sclera that the original Character Creator eye shader provides are recreated with UV masks.
+- **Physically sized eye movement.** The head is life-size (66.8 mm between eye centres), so the full ±5 cm range turns each eye by about 8° and moves each pupil by about 12 px. That is visible, but small at contact-sheet scale. The 70 mm lens frames the face from hairline to chin to make it as large as the 40 cm camera allows.
+- **No corneal refraction.** The cornea is a clear, reflective shell; it does not bend light, so the visible pupil is exactly the geometric one the metadata reports.
+- **Hair cards cast no shadows.** Their dithered-alpha shadows were not reproducible on the GPU. Renders are reproducible to within 2 levels on at most 64 pixels, and identical in nearly all runs. Tests compare images within that bound.
+- **Tested only with Blender 5.3.0 on macOS (Apple Silicon).** Other versions or GPUs may differ slightly.
+- **Speed.** Each wrapper call starts a new Blender process: about 2 s per move and 3 s per render (plus about 1 s for a pupil mask).
 - **Square input range.** `h` and `v` are limited separately, so a corner such as `(1, 1)` puts the target 7.07 cm from centre. The official circle stays within 5 cm.
 
 ## 15. Asset attribution and licences
 
-- **No third-party assets are included.** All geometry, materials and lighting are generated by `blender/build_scene.py`; there are no image textures, downloaded meshes or fonts. `assets/` is empty.
+- **Character: "Hassan V1"**, a Character Creator 3 (Reallusion) character exported to Blender. The mesh, rig, shape keys and textures in `scene.blend` come from it. **Its licence has not been verified.** Character Creator content is normally covered by Reallusion's EULA, which can restrict redistributing editable meshes and textures. Confirm that the character may be redistributed in a hackathon submission before publishing `scene.blend`. If it may not, rebuild with an open head (MakeHuman / MPFB is CC0); the build only needs a CC3-style eye mesh and eye-look shape keys.
+- The source `.blend` (347 MB) is not part of the bundle or the git repository (`assets/source/` is git-ignored).
 - **Blender** (GPL-2.0-or-later, <https://www.blender.org>) is required to run the project but is not redistributed. The contact-sheet labels use Blender's built-in font at render time.
 - **Python standard library** only; no other dependencies.
-- MakeHuman / MPFB was evaluated (`docs/ENVIRONMENT_REPORT.md`, `docs/STAGE1_ASSET_AND_RIG_REPORT.md`) but nothing from it is used.
 - No licence has been chosen for this project's own code yet.
 
 ## Folder guide
@@ -209,5 +219,5 @@ Each prints a line ending in `_OK` on success and exits non-zero on failure.
 | `tests/` | Acceptance tests |
 | `renders/` | `frame_00.png` to `frame_09.png` |
 | `metadata.json` | Ground truth for the ten frames |
-| `outputs/` | `contact_sheet.png`, `validation_report.json`, `final_validation_report.json` |
+| `outputs/` | `contact_sheet.png`, `pupil_masks/frame_00..09.png`, `validation_report.json`, `final_validation_report.json` |
 | `docs/` | Calibration, wrapper API, sequence, metadata, demo script |

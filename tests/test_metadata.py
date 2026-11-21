@@ -19,17 +19,17 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from metadata.metadata_generator import REQUIRED_KEYS, build_metadata, generate, official_record
-from metadata.validator import (METADATA_PATH, PROVENANCE_PATH, RENDERS_DIR, REPORT_PATH,
+from metadata.validator import (MASKS_DIR, METADATA_PATH, PROVENANCE_PATH, RENDERS_DIR, REPORT_PATH,
                                 MetadataValidationError, project, validate)
 
 
 def expect_rejection(label: str, fragment: str, records: object, directory: Path, *, raw: str | None = None,
-                     renders_dir: Path = RENDERS_DIR) -> None:
+                     renders_dir: Path = RENDERS_DIR, masks_dir: Path = MASKS_DIR) -> None:
     """The validator must refuse ``records`` and say why."""
     path = directory / "tampered.json"
     path.write_text(raw if raw is not None else json.dumps(records), encoding="utf-8")
     try:
-        validate(path, renders_dir=renders_dir, report_path=directory / "report.json")
+        validate(path, renders_dir=renders_dir, masks_dir=masks_dir, report_path=directory / "report.json")
     except MetadataValidationError as error:
         assert fragment.lower() in str(error).lower(), f"{label}: rejected for another reason:\n{error}"
         report = json.loads((directory / "report.json").read_text(encoding="utf-8"))
@@ -51,7 +51,7 @@ def main() -> None:
     assert saved == report and report["valid"] is True and report["errors"] == []
     assert report["records"] == 10 and len(report["frames"]) == 10
     assert report["summary"]["pupils_located_in_pixels"] == 20, "Not every pupil was found in the rendered pixels"
-    assert report["summary"]["max_rendered_pixel_error_px"] <= 1.5
+    assert report["summary"]["max_rendered_pixel_error_px"] <= 0.25
     assert report["summary"]["max_reprojection_error_px"] <= 0.01
     assert report["summary"]["max_gaze_error_to_target_degrees"] <= 0.01
     assert report["summary"]["camera_fixed"] is True
@@ -73,7 +73,8 @@ def main() -> None:
     for key in ("eye_rotation_L", "eye_rotation_R", "pupil_center_2D_L", "pupil_center_2D_R"):
         assert len({tuple(record[key]) for record in records}) == 10, f"{key} does not change with the gaze"
     for record, measured in zip(records, provenance):
-        assert record["eye_rotation_L"] != record["eye_rotation_R"], "Converging eyes cannot share one rotation"
+        assert max(abs(a - b) for a, b in zip(record["eye_rotation_L"], record["eye_rotation_R"])) < 1e-3, \
+            "Coordinated eyes must share one rotation"
         for side in ("L", "R"):
             eyeball = project(record["camera_matrix"], measured["eye_center_world_m"][side])
             pupil = record[f"pupil_center_2D_{side}"]
@@ -130,9 +131,10 @@ def main() -> None:
             ("rounded input", "input is", tampered(lambda r: r[3].__setitem__("input", {"h": 0.951, "v": -0.309}))),
             ("string value", "not a finite number", tampered(lambda r: r[1].__setitem__("theta", "0.628"))),
             ("rotation of two angles", "eye_rotation_l must be 3", tampered(lambda r: r[1]["eye_rotation_L"].pop())),
-            ("rotation off by one degree", "fixation target", tampered(lambda r: r[5]["eye_rotation_R"].__setitem__(2, r[5]["eye_rotation_R"][2] + 1.0))),
-            ("rotations of another frame", "fixation target", tampered(lambda r: r[2].__setitem__("eye_rotation_L", r[7]["eye_rotation_L"]))),
-            ("zero rotations", "fixation target", tampered(lambda r: [x.update(eye_rotation_L=[0.0, 0.0, 0.0], eye_rotation_R=[0.0, 0.0, 0.0]) for x in r])),
+            ("rotation off by one degree", "measured pupil axis", tampered(lambda r: r[5]["eye_rotation_R"].__setitem__(2, r[5]["eye_rotation_R"][2] + 1.0))),
+            ("rotations of another frame", "measured pupil axis", tampered(lambda r: r[2].__setitem__("eye_rotation_L", r[7]["eye_rotation_L"]))),
+            ("zero rotations", "measured pupil axis", tampered(lambda r: [x.update(eye_rotation_L=[0.0, 0.0, 0.0], eye_rotation_R=[0.0, 0.0, 0.0]) for x in r])),
+            ("one eye turned alone", "must move together", tampered(lambda r: r[2].__setitem__("eye_rotation_R", r[2]["eye_rotation_L"][:2] + [r[2]["eye_rotation_L"][2] + 5.0]))),
             ("pupil shifted three pixels", "projected 3d pupil centre", tampered(lambda r: r[4]["pupil_center_2D_L"].__setitem__(0, r[4]["pupil_center_2D_L"][0] + 3.0))),
             ("eyeball centres instead of pupils", "projected 3d pupil centre", tampered(eyeball_instead_of_pupil)),
             ("pupil outside image", "outside the image", tampered(lambda r: r[4].__setitem__("pupil_center_2D_R", [1500.0, 512.0]))),
@@ -158,9 +160,17 @@ def main() -> None:
         (swapped / "frame_07.png").write_bytes(b"not an image")
         expect_rejection("corrupt image", "is invalid", records, directory, renders_dir=swapped)
 
+        # ... and to its own pupil mask.
+        masks = directory / "pupil_masks"
+        shutil.copytree(MASKS_DIR, masks)
+        shutil.copy(MASKS_DIR / "frame_02.png", masks / "frame_07.png")
+        expect_rejection("another frame's pupil mask", "pupil mask frame_07.png is not the one", records, directory, masks_dir=masks)
+        (masks / "frame_07.png").unlink()
+        expect_rejection("missing pupil mask", "pupil mask frame_07.png is missing", records, directory, masks_dir=masks)
+
     assert json.loads(REPORT_PATH.read_text(encoding="utf-8")) == report, "A rejection test overwrote the real report"
     assert json.loads(METADATA_PATH.read_text(encoding="utf-8")) == records
-    print("METADATA_TEST_OK records=10 actual_pixels=true numeric_json=true generator_refusals=4 validator_rejections=25")
+    print("METADATA_TEST_OK records=10 actual_pixels=true numeric_json=true generator_refusals=4 validator_rejections=28")
 
 
 if __name__ == "__main__":
